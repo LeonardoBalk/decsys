@@ -75,13 +75,15 @@ class IndicatorRegistration(BaseModel):
     expected_frequency: str | None = None
 
 
-def supabase_headers(prefer: str | None = None) -> dict[str, str]:
+def supabase_headers(prefer: str | None = None, profile: str | None = None) -> dict[str, str]:
     service_role_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
     if not service_role_key:
         raise HTTPException(500, "Configure SUPABASE_SERVICE_ROLE_KEY no serviço de ingestão.")
     request_headers = {"apikey": service_role_key, "Authorization": f"Bearer {service_role_key}"}
     if prefer:
         request_headers["Prefer"] = prefer
+    if profile:
+        request_headers["Accept-Profile"] = profile
     return request_headers
 
 
@@ -648,6 +650,19 @@ def list_indicators() -> list[dict[str, Any]]:
     if not indicators_response.is_success:
         raise HTTPException(502, "Não foi possível carregar os indicadores.")
     return indicators_response.json()
+
+
+@app.get("/dashboard-values")
+def list_dashboard_values(indicator_code: str | None = None, dataset_id: str | None = None, limit: int = 500) -> list[dict[str, Any]]:
+    query_parameters: dict[str, str] = {"select": "id,dataset_id,dataset_name,domain_name,indicator_code,indicator_name,dimensions,reference_period,value,unit,import_title,source_name", "order": "reference_period.desc", "limit": str(max(1, min(limit, 1000)))}
+    if indicator_code:
+        query_parameters["indicator_code"] = f"eq.{indicator_code}"
+    if dataset_id:
+        query_parameters["dataset_id"] = f"eq.{dataset_id}"
+    values_response = httpx.get(supabase_url("/rest/v1/dashboard_values"), params=query_parameters, headers=supabase_headers(profile="core"), timeout=30.0)
+    if not values_response.is_success:
+        raise HTTPException(502, "Não foi possível carregar os dados revisados.")
+    return values_response.json()
 
 
 @app.post("/indicators")

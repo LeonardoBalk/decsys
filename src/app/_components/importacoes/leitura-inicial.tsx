@@ -12,6 +12,7 @@ export function InitialReading({ sourceProfile }: InitialReadingProps) {
       <dl><div><dt>Colunas</dt><dd>{sourceProfile.columns.length}</dd></div><div><dt>Código municipal</dt><dd>{sourceProfile.suggestions.municipality_code ?? "não reconhecido"}</dd></div><div><dt>Ano</dt><dd>{sourceProfile.suggestions.reference_year ?? "não reconhecido"}</dd></div><div><dt>Valor</dt><dd>{sourceProfile.suggestions.value ?? "revisar"}</dd></div></dl>
       {sourceProfile.reading_notes?.map((readingNote) => <p className={styles.profileGuidance} key={readingNote}>{readingNote}</p>)}
       <p className={styles.profileGuidance}>{sourceProfile.agent_assessment?.summary ?? "A próxima etapa vinculará essas colunas a um indicador da matriz e executará as validações antes da aprovação."}</p>
+      {sourceProfile.agent_assessment?.risks?.length ? <div className={styles.assessmentRisks}><strong>Pontos para conferir antes de salvar</strong><ul>{sourceProfile.agent_assessment.risks.map((risk) => <li key={risk}>{risk}</li>)}</ul></div> : null}
     </div>
   </section>;
 }

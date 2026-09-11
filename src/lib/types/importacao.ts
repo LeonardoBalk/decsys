@@ -29,7 +29,7 @@ export type SourceProfile = {
   sample: Record<string, string | number | null>[];
   suggestions: Record<string, string>;
   indicator_recommendations?: IndicatorRecommendation[];
-  agent_assessment?: { status: string; summary: string };
+  agent_assessment?: { status: string; summary: string; risks?: string[]; municipality_field?: string | null; year_field?: string | null; measure_field?: string | null };
   sheets?: { name: string; rows: number; columns: number; has_data?: boolean }[];
   selected_sheet?: string | null;
   reading_notes?: string[];

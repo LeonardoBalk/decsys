@@ -89,6 +89,9 @@
 .profileSummary dt { margin-bottom: 5px; color: var(--color-text-muted); font-size: var(--text-caption); font-weight: 500; }
 .profileSummary dd { margin: 0; color: var(--color-text); font-size: var(--text-sm); font-weight: 600; font-family: var(--font-mono); }
 .profileGuidance { margin: 0; color: var(--color-text-light); font-size: var(--text-sm); line-height: var(--leading-relaxed); }
+.assessmentRisks { padding: var(--space-3) var(--space-4); border: 1px solid var(--color-border-muted); border-radius: var(--radius-md); background: var(--color-surface-200); }
+.assessmentRisks strong { color: var(--color-text); font-size: var(--text-sm); font-weight: 590; }
+.assessmentRisks ul { display: grid; gap: 5px; margin: var(--space-2) 0 0; padding-left: 18px; color: var(--color-text-lighter); font-size: var(--text-sm); line-height: var(--leading-relaxed); }
 .indicatorRecommendations { display: grid; gap: var(--space-2); margin: var(--space-4) 0; }
 .indicatorRecommendation { display: flex; justify-content: space-between; align-items: center; gap: var(--space-4); padding: var(--space-4); border: 1px solid var(--color-border-muted); border-radius: var(--radius-md); background: var(--color-surface-200); }
 .indicatorRecommendation strong { color: var(--color-text); font-size: var(--text-sm); font-weight: 590; }

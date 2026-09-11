@@ -161,7 +161,7 @@ export default function ImportWorkspace() {
         </div>
         <nav aria-label="Navegação principal">
           <a className={styles.activeNav} href="/"><FileUp size={20} strokeWidth={1.5} />Importações</a>
-          <a href="#dados-revisados"><Database size={20} strokeWidth={1.5} />Dados revisados</a>
+          <a href="/dados-revisados"><Database size={20} strokeWidth={1.5} />Dados revisados</a>
           <a href="#fontes"><Link2 size={20} strokeWidth={1.5} />Fontes</a>
         </nav>
       </div>
