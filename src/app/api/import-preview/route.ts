@@ -10,7 +10,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ message: "Envie um arquivo CSV, XLSX ou JSON." }, { status: 400 });
   }
 
-  const ingestionAddress = process.env.INGESTION_API_URL ?? "http://localhost:8000";
+  const ingestionAddress = process.env.INGESTION_API_URL ?? "http://127.0.0.1:8000";
   const ingestionForm = new FormData();
   ingestionForm.append("file", sourceFile, sourceFile.name);
   const selectedSheet = submittedForm.get("sheetName");

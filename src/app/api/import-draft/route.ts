@@ -14,6 +14,6 @@ export async function POST(request: Request) {
   }
   const selectedSheet = submittedForm.get("sheetName");
   if (typeof selectedSheet === "string" && selectedSheet) ingestionForm.append("sheet_name", selectedSheet);
-  const ingestionResponse = await fetch(`${process.env.INGESTION_API_URL ?? "http://localhost:8000"}/imports/draft`, { method: "POST", body: ingestionForm, cache: "no-store" });
+  const ingestionResponse = await fetch(`${process.env.INGESTION_API_URL ?? "http://127.0.0.1:8000"}/imports/draft`, { method: "POST", body: ingestionForm, cache: "no-store" });
   return NextResponse.json(await ingestionResponse.json(), { status: ingestionResponse.status });
 }
