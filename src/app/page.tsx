@@ -41,6 +41,8 @@ export default function ImportWorkspace() {
     setSourceProfile(null);
     setDownloadCandidates([]);
     setAnalysisMessage("");
+    setSelectedSheet(null);
+    setDraftImportId(null);
   }
 
   function selectSourceUrl(event: ChangeEvent<HTMLInputElement>) {
@@ -56,6 +58,7 @@ export default function ImportWorkspace() {
     if ("file_name" in profilePayload) {
       setSourceProfile(profilePayload);
       setDownloadCandidates([]);
+      setSelectedSheet(profilePayload.selected_sheet ?? null);
       setCurrentStep(2);
       setMaxReachedStep((reachedStep) => Math.max(reachedStep, 2));
     }
@@ -129,7 +132,10 @@ export default function ImportWorkspace() {
         : await fetch("/api/import-draft-link", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source_url: sourceProfile.source_url, title: sourceProfile.file_name, sheet_name: selectedSheet }) });
       const payload = await response.json();
       if (!response.ok) setAnalysisMessage(payload.detail ?? payload.message ?? "Não foi possível criar o rascunho.");
-      else setDraftImportId(payload.import_id);
+      else {
+        setDraftImportId(payload.import_id);
+        setAnalysisMessage("");
+      }
     } catch { setAnalysisMessage("Não foi possível salvar o rascunho no momento."); }
     finally { setIsSavingDraft(false); }
   }
@@ -180,8 +186,8 @@ export default function ImportWorkspace() {
         onSourceUrlChange={selectSourceUrl}
         sourceUrl={sourceUrl}
       /> : null}
-      {currentStep === 2 && sourceProfile ? <EtapaLeitura onAdvance={() => goToStep(3)} onSelectSheet={selectWorkbookSheet} sourceProfile={sourceProfile} /> : null}
-      {currentStep === 3 && sourceProfile ? <EtapaDestino importId={draftImportId} isDiscarding={isDiscarding} isSavingDraft={isSavingDraft} onDiscard={discardDraft} onSaveDraft={saveDraft} sourceProfile={sourceProfile} /> : null}
+      {currentStep === 2 && sourceProfile ? <EtapaLeitura feedbackMessage={analysisMessage} isAnalyzing={isAnalyzing} onAdvance={() => goToStep(3)} onSelectSheet={selectWorkbookSheet} sourceProfile={sourceProfile} /> : null}
+      {currentStep === 3 && sourceProfile ? <EtapaDestino feedbackMessage={analysisMessage} importId={draftImportId} isDiscarding={isDiscarding} isSavingDraft={isSavingDraft} onDiscard={discardDraft} onSaveDraft={saveDraft} sourceProfile={sourceProfile} /> : null}
     </main>
   </div>;
 }

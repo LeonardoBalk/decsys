@@ -43,7 +43,9 @@ export function EtapaOrigem({
         ? <FileImportForm isAnalyzing={isAnalyzing} onFileChange={onFileChange} onSubmit={onFileSubmit} />
         : <LinkImportForm isAnalyzing={isAnalyzing} onSourceUrlChange={onSourceUrlChange} onSubmit={onLinkSubmit} sourceUrl={sourceUrl} />}
     </div>
-    {analysisMessage ? <p className={styles.feedbackMessage}>{analysisMessage}</p> : null}
+    <section className={styles.processHint}><strong>O que acontece depois?</strong><p>O Decsys identifica colunas e possíveis problemas. Você confere uma prévia antes de salvar, exportar ou encaminhar qualquer dado.</p></section>
+    {isAnalyzing ? <p aria-live="polite" className={styles.loadingNotice}>Estamos lendo a estrutura da fonte. Isso pode levar alguns instantes em planilhas grandes.</p> : null}
+    {analysisMessage ? <p aria-live="assertive" className={styles.feedbackMessage}>{analysisMessage}</p> : null}
     <FoundFiles candidates={downloadCandidates} onSelect={onSelectFoundFile} />
   </StepScreen>;
 }

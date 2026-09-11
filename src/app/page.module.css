@@ -70,6 +70,10 @@
 .sourceForm input:focus, .sourceForm select:focus { border-color: var(--color-brand); box-shadow: 0 0 0 3px rgba(62, 158, 255, .16); }
 .fieldNote { color: var(--color-text-muted); font-size: var(--text-caption); font-weight: 400; line-height: var(--leading-relaxed); }
 .feedbackMessage { margin: 0; color: var(--color-destructive); font-size: var(--text-sm); }
+.processHint { padding: var(--space-4); border: 1px solid var(--color-border-muted); border-radius: var(--radius-md); background: var(--color-surface-200); }
+.processHint strong { display: block; margin-bottom: 4px; color: var(--color-text); font-size: var(--text-sm); font-weight: 590; }
+.processHint p { margin: 0; color: var(--color-text-lighter); font-size: var(--text-sm); line-height: var(--leading-relaxed); }
+.loadingNotice { margin: 0; padding: 10px 12px; border: 1px solid var(--color-border-muted); border-radius: var(--radius-md); background: var(--color-surface-200); color: var(--color-text-light); font-size: var(--text-sm); }
 .downloadCandidates { padding: var(--space-6); border: 1px solid var(--color-border-muted); border-radius: var(--radius-lg); background: var(--color-surface-100); }
 .downloadCandidates h2 { margin-bottom: var(--space-3); }
 .workspaceShell .downloadCandidates button { display: flex; align-items: center; gap: var(--space-2); width: 100%; margin-top: var(--space-2); padding: 10px 12px; border: 1px solid var(--color-border-muted); border-radius: var(--radius-md); background: transparent; color: var(--color-text-lighter); font-size: var(--text-sm); font-weight: 500; text-align: left; }
