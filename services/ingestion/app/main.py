@@ -42,6 +42,7 @@ class LinkRequest(BaseModel):
     title: str | None = None
     reference_year: int | None = None
     sheet_name: str | None = None
+    include_all_sheets: bool = False
 
 
 class ImportDecision(BaseModel):
@@ -49,16 +50,18 @@ class ImportDecision(BaseModel):
 
 
 class MunicipalApproval(BaseModel):
-  indicator_id: str
-  municipality_field: str
-  year_field: str
-  value_field: str
-  unit: str
+    indicator_id: str
+    municipality_field: str
+    year_field: str
+    value_field: str
+    unit: str
+    sheet_name: str | None = None
 
 
 class WideMunicipalTransform(BaseModel):
     municipality_field: str
     value_field: str
+    sheet_name: str | None = None
 
 
 class GenericApproval(BaseModel):
@@ -94,26 +97,45 @@ def supabase_url(path: str) -> str:
     return f"{project_url}{path}"
 
 
-def persist_import(source_name: str, source_content: bytes, source_url: str | None, dataset_id: str, import_title: str, reference_year: int | None, sheet_name: str | None = None) -> dict[str, Any]:
+def import_tables(source_name: str, source_content: bytes, selected_sheet: str | None, include_all_sheets: bool) -> list[tuple[str, pl.DataFrame]]:
+    if include_all_sheets and Path(source_name).suffix.lower() == ".xlsx":
+        tables: list[tuple[str, pl.DataFrame]] = []
+        for sheet in workbook_sheets(source_content):
+            try:
+                source_table = normalize_table_columns(read_table(source_name, source_content, str(sheet["name"])))
+            except HTTPException:
+                continue
+            if source_table.height and source_table.width:
+                tables.append((str(sheet["name"]), source_table))
+        if tables:
+            return tables
+        raise HTTPException(422, "Nenhuma aba da planilha contém uma tabela que possa ser importada.")
+    source_table = normalize_table_columns(read_table(source_name, source_content, selected_sheet))
+    return [(selected_sheet or "Dados", source_table)]
+
+
+def persist_import(source_name: str, source_content: bytes, source_url: str | None, dataset_id: str, import_title: str, reference_year: int | None, sheet_name: str | None = None, include_all_sheets: bool = False) -> dict[str, Any]:
     selected_sheet = resolve_sheet_name(source_name, source_content, sheet_name)
-    source_table = read_table(source_name, source_content, selected_sheet)
-    source_table = normalize_table_columns(source_table)
+    selected_tables = import_tables(source_name, source_content, selected_sheet, include_all_sheets)
+    source_table = next(source_table for table_name, source_table in selected_tables if table_name == (selected_sheet or "Dados"))
     source_profile = profile_table(source_name, source_content, source_url, "uploaded_file" if source_url is None else "remote_file", selected_sheet)
     source_record = {"name": source_name, "base_url": source_url}
     source_response = httpx.post(supabase_url("/rest/v1/sources"), headers=supabase_headers("return=representation"), json=source_record, timeout=30.0)
     if not source_response.is_success:
         raise HTTPException(502, "Não foi possível registrar a fonte no Supabase.")
     source_id = source_response.json()[0]["id"]
-    import_response = httpx.post(supabase_url("/rest/v1/imports"), headers=supabase_headers("return=representation"), json={"source_id": source_id, "dataset_id": dataset_id, "title": import_title, "reference_year": reference_year, "source_url": source_url, "file_name": source_name, "file_sha256": sha256(source_content).hexdigest(), "status": "needs_review", "profile": source_profile, "total_rows": source_table.height}, timeout=30.0)
+    import_response = httpx.post(supabase_url("/rest/v1/imports"), headers=supabase_headers("return=representation"), json={"source_id": source_id, "dataset_id": dataset_id, "title": import_title, "reference_year": reference_year, "source_url": source_url, "file_name": source_name, "file_sha256": sha256(source_content).hexdigest(), "status": "needs_review", "profile": source_profile, "total_rows": sum(table.height for _, table in selected_tables)}, timeout=30.0)
     if not import_response.is_success:
         raise HTTPException(502, "Não foi possível criar o rascunho da importação no Supabase.")
     import_record = import_response.json()[0]
     import_id = import_record["id"]
     if selected_sheet:
         sheet_records = []
+        table_by_sheet = dict(selected_tables)
         for sheet_position, sheet in enumerate(workbook_sheets(source_content), start=1):
             is_selected = sheet["name"] == selected_sheet
-            sheet_records.append({"import_id": import_id, "sheet_name": sheet["name"], "sheet_position": sheet_position, "row_count": sheet["rows"], "column_count": sheet["columns"], "columns_profile": source_profile["columns"] if is_selected else [], "sample_rows": source_profile["sample"] if is_selected else [], "selected_for_treatment": is_selected})
+            imported_table = table_by_sheet.get(str(sheet["name"]))
+            sheet_records.append({"import_id": import_id, "sheet_name": sheet["name"], "sheet_position": sheet_position, "row_count": imported_table.height if imported_table is not None else 0, "column_count": imported_table.width if imported_table is not None else 0, "columns_profile": source_profile["columns"] if is_selected else [], "sample_rows": source_profile["sample"] if is_selected else [], "selected_for_treatment": is_selected})
         sheets_response = httpx.post(supabase_url("/rest/v1/import_sheets"), headers=supabase_headers(), json=sheet_records, timeout=30.0)
         if not sheets_response.is_success:
             raise HTTPException(502, "Não foi possível registrar as abas da planilha. Confirme se a migration 0008_import_sheets.sql foi executada no Supabase.")
@@ -121,7 +143,7 @@ def persist_import(source_name: str, source_content: bytes, source_url: str | No
     storage_response = httpx.post(supabase_url(f"/storage/v1/object/source-files/{original_storage_path}"), headers={**supabase_headers("resolution=merge-duplicates"), "Content-Type": "application/octet-stream", "x-upsert": "true"}, content=source_content, timeout=180.0)
     if not storage_response.is_success:
         raise HTTPException(502, "O rascunho foi criado, mas o arquivo não pôde ser guardado no Storage.")
-    staged_rows = [{"import_id": import_id, "row_number": row_number, "raw_row": row_values} for row_number, row_values in enumerate(source_table.to_dicts(), start=1)]
+    staged_rows = [{"import_id": import_id, "sheet_name": table_name, "row_number": row_number, "raw_row": row_values} for table_name, table in selected_tables for row_number, row_values in enumerate(table.to_dicts(), start=1)]
     for start_index in range(0, len(staged_rows), 500):
         staged_response = httpx.post(supabase_url("/rest/v1/import_rows"), headers=supabase_headers(), json=staged_rows[start_index:start_index + 500], timeout=30.0)
         if not staged_response.is_success:
@@ -129,7 +151,7 @@ def persist_import(source_name: str, source_content: bytes, source_url: str | No
     update_response = httpx.patch(supabase_url(f"/rest/v1/imports?id=eq.{import_id}"), headers=supabase_headers(), json={"storage_path": original_storage_path}, timeout=30.0)
     if not update_response.is_success:
         raise HTTPException(502, "O arquivo foi guardado, mas o caminho não pôde ser associado à importação.")
-    return {"import_id": import_id, "status": "needs_review", "total_rows": source_table.height, "profile": source_profile}
+    return {"import_id": import_id, "status": "needs_review", "total_rows": sum(table.height for _, table in selected_tables), "imported_sheets": [table_name for table_name, _ in selected_tables], "profile": source_profile}
 
 
 def normalize_column(column_name: str) -> str:
@@ -715,11 +737,11 @@ async def profile_link(link_request: LinkRequest) -> dict[str, Any]:
 
 
 @app.post("/imports/draft")
-async def create_import_draft(file: UploadFile = File(...), dataset_id: str | None = Form(None), title: str = Form(...), reference_year: int | None = Form(None), sheet_name: str | None = Form(None)) -> dict[str, Any]:
+async def create_import_draft(file: UploadFile = File(...), dataset_id: str | None = Form(None), title: str = Form(...), reference_year: int | None = Form(None), sheet_name: str | None = Form(None), include_all_sheets: bool = Form(False)) -> dict[str, Any]:
     source_content = await file.read()
     if not file.filename:
         raise HTTPException(400, "Arquivo sem nome.")
-    return persist_import(file.filename, source_content, None, dataset_id, title, reference_year, sheet_name)
+    return persist_import(file.filename, source_content, None, dataset_id, title, reference_year, sheet_name, include_all_sheets)
 
 
 @app.post("/imports/draft-link")
@@ -731,11 +753,11 @@ async def create_link_import_draft(link_request: LinkRequest) -> dict[str, Any]:
         if drive_kind == "folder":
             raise HTTPException(415, "Escolha um arquivo específico da pasta do Google Drive antes de criar o rascunho.")
         source_name, source_content, _ = fetch_drive_file(drive_id)
-        return persist_import(source_name, source_content, source_url, link_request.dataset_id, link_request.title or source_name, link_request.reference_year, link_request.sheet_name)
+        return persist_import(source_name, source_content, source_url, link_request.dataset_id, link_request.title or source_name, link_request.reference_year, link_request.sheet_name, link_request.include_all_sheets)
     source_name, source_content, content_type, final_url = await download_source(source_url)
     if "text/html" in content_type or Path(source_name).suffix.lower() not in acceptable_extensions:
         raise HTTPException(415, "Use o link direto de um arquivo para criar o rascunho.")
-    return persist_import(source_name, source_content, final_url, link_request.dataset_id, link_request.title or source_name, link_request.reference_year, link_request.sheet_name)
+    return persist_import(source_name, source_content, final_url, link_request.dataset_id, link_request.title or source_name, link_request.reference_year, link_request.sheet_name, link_request.include_all_sheets)
 
 
 @app.post("/imports/{import_id}/discard")
@@ -756,7 +778,7 @@ def discard_import(import_id: str) -> dict[str, str]:
 
 @app.post("/imports/{import_id}/approve-municipal")
 def approve_municipal_import(import_id: str, approval: MunicipalApproval) -> dict[str, Any]:
-    approval_response = httpx.post(supabase_url("/rest/v1/rpc/approve_municipal_import"), headers=supabase_headers(), json={"selected_import_id": import_id, "selected_indicator_id": approval.indicator_id, "municipality_field": approval.municipality_field, "year_field": approval.year_field, "value_field": approval.value_field, "observation_unit": approval.unit}, timeout=30.0)
+    approval_response = httpx.post(supabase_url("/rest/v1/rpc/approve_municipal_import"), headers=supabase_headers(), json={"selected_import_id": import_id, "selected_indicator_id": approval.indicator_id, "municipality_field": approval.municipality_field, "year_field": approval.year_field, "value_field": approval.value_field, "observation_unit": approval.unit, "selected_sheet_name": approval.sheet_name}, timeout=30.0)
     if not approval_response.is_success:
         raise HTTPException(502, "Não foi possível aprovar a importação municipal.")
     return {"import_id": import_id, "status": "approved", "approved_rows": approval_response.json()}
@@ -768,7 +790,7 @@ def normalize_municipal_wide_import(import_id: str, transformation: WideMunicipa
     if not period:
         raise HTTPException(422, "A coluna escolhida não informa um mês e ano no título. Escolha uma coluna como julho_2026_saldos.")
     reference_year, reference_month = period
-    transformation_response = httpx.post(supabase_url("/rest/v1/rpc/normalize_municipal_wide_import"), headers=supabase_headers(), json={"selected_import_id": import_id, "selected_municipality_field": transformation.municipality_field, "selected_value_field": transformation.value_field, "selected_reference_year": reference_year, "selected_reference_month": reference_month}, timeout=60.0)
+    transformation_response = httpx.post(supabase_url("/rest/v1/rpc/normalize_municipal_wide_import"), headers=supabase_headers(), json={"selected_import_id": import_id, "selected_municipality_field": transformation.municipality_field, "selected_value_field": transformation.value_field, "selected_reference_year": reference_year, "selected_reference_month": reference_month, "selected_sheet_name": transformation.sheet_name}, timeout=60.0)
     if not transformation_response.is_success:
         raise HTTPException(502, "Não foi possível guardar a versão normalizada das linhas. Confirme se a migration 0009_published_values.sql foi executada no Supabase.")
     outcome = transformation_response.json()[0]

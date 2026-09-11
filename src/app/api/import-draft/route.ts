@@ -8,7 +8,7 @@ export async function POST(request: Request) {
   if (!(sourceFile instanceof File)) return NextResponse.json({ message: "Envie um arquivo para criar o rascunho." }, { status: 400 });
   const ingestionForm = new FormData();
   ingestionForm.append("file", sourceFile, sourceFile.name);
-  for (const fieldName of ["dataset_id", "title", "reference_year"]) {
+  for (const fieldName of ["dataset_id", "title", "reference_year", "include_all_sheets"]) {
     const fieldValue = submittedForm.get(fieldName);
     if (typeof fieldValue === "string" && fieldValue) ingestionForm.append(fieldName, fieldValue);
   }

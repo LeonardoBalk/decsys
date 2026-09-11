@@ -8,21 +8,22 @@ type EtapaDestinoProps = {
   sourceProfile: SourceProfile;
   importId: string | null;
   isSavingDraft: boolean;
-  onSaveDraft: () => void;
+  onSaveDraft: (includeAllSheets: boolean) => void;
   isDiscarding: boolean;
   onDiscard: () => void;
   feedbackMessage: string;
 };
 
 export function EtapaDestino({ sourceProfile, importId, isSavingDraft, onSaveDraft, isDiscarding, onDiscard, feedbackMessage }: EtapaDestinoProps) {
-  return <StepScreen eyebrow="ETAPA 3 DE 3" title="Destino" description="Exporte a prévia ou encaminhe para revisão.">
+  return <StepScreen eyebrow="ETAPA 3 DE 3" title="Destino" description="Exporte a prévia ou importe a tabela inteira para revisão.">
     <PreviewExport importId={importId} sourceProfile={sourceProfile} />
-    <section className={styles.processHint}><strong>{importId ? "Rascunho salvo para revisão" : "Antes de encaminhar"}</strong><p>{importId ? "A base completa foi guardada com a fonte original. Ela ainda não aparece em painéis: alguém precisa revisar as colunas e aprovar o uso dos dados." : "Encaminhar guarda a base e a origem para revisão. Essa ação não publica dados automaticamente em nenhum painel."}</p></section>
+    <section className={styles.processHint}><strong>{importId ? "Planilha importada" : "Escolha o alcance da importação"}</strong><p>{importId ? "A fonte original e os registros importados foram guardados. Para tratar dados municipais, a aba revisada continua selecionada separadamente." : sourceProfile.sheets && sourceProfile.sheets.length > 1 ? "Você pode importar apenas a aba em revisão ou todas as abas legíveis. Cada aba permanece identificada para tratamento posterior." : `A prévia mostra uma amostra, mas a importação gravará os ${sourceProfile.rows.toLocaleString("pt-BR")} registros reconhecidos, junto com a fonte original.`}</p></section>
     {isSavingDraft ? <p aria-live="polite" className={styles.loadingNotice}>Guardando o arquivo, suas linhas e a referência da fonte.</p> : null}
     {feedbackMessage ? <p aria-live="assertive" className={styles.feedbackMessage}>{feedbackMessage}</p> : null}
     <div className={styles.stepActions}>
       {importId ? <button disabled={isDiscarding} onClick={onDiscard} type="button">{isDiscarding ? "Descartando..." : "Descartar rascunho"}</button> : null}
-      <button className={styles.primaryButton} disabled={isSavingDraft || Boolean(importId)} onClick={onSaveDraft} type="button">{importId ? "Encaminhado para revisão" : isSavingDraft ? "Encaminhando..." : "Encaminhar para revisão"}</button>
+      {sourceProfile.sheets && sourceProfile.sheets.length > 1 && !importId ? <button disabled={isSavingDraft} onClick={() => onSaveDraft(false)} type="button">Importar aba em revisão</button> : null}
+      <button className={styles.primaryButton} disabled={isSavingDraft || Boolean(importId)} onClick={() => onSaveDraft(Boolean(sourceProfile.sheets && sourceProfile.sheets.length > 1))} type="button">{importId ? "Planilha importada" : isSavingDraft ? "Importando..." : sourceProfile.sheets && sourceProfile.sheets.length > 1 ? "Importar todas as abas" : "Importar tabela completa"}</button>
     </div>
     {importId ? <MunicipalApproval importId={importId} sourceProfile={sourceProfile} /> : null}
   </StepScreen>;

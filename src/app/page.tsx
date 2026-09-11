@@ -1,7 +1,7 @@
 "use client";
 
 import { ChangeEvent, FormEvent, useState } from "react";
-import { FileUp, Database, Link2, Info } from "lucide-react";
+import { FileUp, Database, Link2, ListTree } from "lucide-react";
 import styles from "./page.module.css";
 import { Stepper, ImportStep } from "./_components/importacoes/stepper";
 import { EtapaOrigem } from "./_components/importacoes/etapa-origem";
@@ -122,19 +122,19 @@ export default function ImportWorkspace() {
     void profileSourceUrl(candidateUrl);
   }
 
-  async function saveDraft() {
+  async function saveDraft(includeAllSheets: boolean) {
     if (!sourceProfile) return;
     setIsSavingDraft(true);
     setAnalysisMessage("");
     try {
       const response = sourceFile
-        ? await fetch("/api/import-draft", { method: "POST", body: (() => { const draftForm = new FormData(); draftForm.append("sourceFile", sourceFile); draftForm.append("title", sourceProfile.file_name); if (selectedSheet) draftForm.append("sheetName", selectedSheet); return draftForm; })() })
-        : await fetch("/api/import-draft-link", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source_url: sourceProfile.source_url, title: sourceProfile.file_name, sheet_name: selectedSheet }) });
+        ? await fetch("/api/import-draft", { method: "POST", body: (() => { const draftForm = new FormData(); draftForm.append("sourceFile", sourceFile); draftForm.append("title", sourceProfile.file_name); draftForm.append("include_all_sheets", String(includeAllSheets)); if (selectedSheet) draftForm.append("sheetName", selectedSheet); return draftForm; })() })
+        : await fetch("/api/import-draft-link", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source_url: sourceProfile.source_url, title: sourceProfile.file_name, sheet_name: selectedSheet, include_all_sheets: includeAllSheets }) });
       const payload = await response.json();
       if (!response.ok) setAnalysisMessage(payload.detail ?? payload.message ?? "Não foi possível criar o rascunho.");
       else {
         setDraftImportId(payload.import_id);
-        setAnalysisMessage("");
+        setAnalysisMessage(includeAllSheets ? `${payload.total_rows.toLocaleString("pt-BR")} registros de ${payload.imported_sheets.length} abas foram importados para revisão.` : "");
       }
     } catch { setAnalysisMessage("Não foi possível salvar o rascunho no momento."); }
     finally { setIsSavingDraft(false); }
@@ -162,6 +162,7 @@ export default function ImportWorkspace() {
         <nav aria-label="Navegação principal">
           <a className={styles.activeNav} href="/"><FileUp size={20} strokeWidth={1.5} />Importações</a>
           <a href="/dados-revisados"><Database size={20} strokeWidth={1.5} />Dados revisados</a>
+          <a href="/indicadores"><ListTree size={20} strokeWidth={1.5} />Indicadores</a>
           <a href="#fontes"><Link2 size={20} strokeWidth={1.5} />Fontes</a>
         </nav>
       </div>

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Database, FileUp, Link2, RefreshCw } from "lucide-react";
+import { Database, FileUp, Link2, ListTree, RefreshCw } from "lucide-react";
 import styles from "../page.module.css";
 
 type DashboardValue = {
@@ -58,6 +58,7 @@ export default function ReviewedDataPage() {
         <nav aria-label="Navegação principal">
           <a href="/"><FileUp size={20} strokeWidth={1.5} />Importações</a>
           <a className={styles.activeNav} href="/dados-revisados"><Database size={20} strokeWidth={1.5} />Dados revisados</a>
+          <a href="/indicadores"><ListTree size={20} strokeWidth={1.5} />Indicadores</a>
           <a href="/#fontes"><Link2 size={20} strokeWidth={1.5} />Fontes</a>
         </nav>
       </div>
