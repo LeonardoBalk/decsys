@@ -5,6 +5,7 @@ import os
 import re
 import socket
 import csv
+import unicodedata
 import zipfile
 from hashlib import sha256
 from io import BytesIO, StringIO
@@ -293,9 +294,17 @@ def normalize_brazilian_decimals(source_table: pl.DataFrame) -> pl.DataFrame:
     return source_table.with_columns(normalized_columns) if normalized_columns else source_table
 
 
-def workbook_sheets(source_content: bytes) -> list[dict[str, int | str | bool]]:
+def normalized_sheet_title(sheet_title: str) -> str:
+    return "".join(character for character in unicodedata.normalize("NFKD", sheet_title).lower() if not unicodedata.combining(character)).strip()
+
+
+def is_navigation_sheet(sheet_title: str) -> bool:
+    return normalized_sheet_title(sheet_title) in {"sumario", "indice", "contents"}
+
+
+def workbook_sheets(source_content: bytes) -> list[dict[str, int | str]]:
     workbook = load_workbook(BytesIO(source_content), read_only=True, data_only=True)
-    return [{"name": worksheet.title, "rows": worksheet.max_row, "columns": worksheet.max_column, "has_data": any(any(has_cell_value(cell_value) for cell_value in row_values) for row_values in worksheet.iter_rows(values_only=True))} for worksheet in workbook.worksheets]
+    return [{"name": worksheet.title, "rows": worksheet.max_row, "columns": worksheet.max_column} for worksheet in workbook.worksheets if not is_navigation_sheet(worksheet.title) and any(any(has_cell_value(cell_value) for cell_value in row_values) for row_values in worksheet.iter_rows(values_only=True))]
 
 
 def has_cell_value(cell_value: Any) -> bool:
@@ -355,6 +364,15 @@ def infer_excel_headers(source_content: bytes, sheet_name: str) -> dict[str, Any
     return {"header_row": data_row_number - 2, "header_rows": list(range(header_start, data_row_number)), "header_names": unique_header_names(header_names)}
 
 
+def trim_trailing_spreadsheet_notes(source_table: pl.DataFrame) -> pl.DataFrame:
+    if not source_table.height or not source_table.width:
+        return source_table
+    populated_fields = source_table.select(pl.sum_horizontal(*[pl.col(column_name).is_not_null().cast(pl.UInt16) for column_name in source_table.columns]).alias("populated_fields")).get_column("populated_fields").to_list()
+    minimum_populated_fields = min(2, source_table.width)
+    last_data_position = next((position for position in range(len(populated_fields) - 1, -1, -1) if populated_fields[position] >= minimum_populated_fields), -1)
+    return source_table.slice(0, last_data_position + 1)
+
+
 def read_excel_table(source_content: bytes, sheet_name: str) -> pl.DataFrame:
     header_configuration = infer_excel_headers(source_content, sheet_name)
     read_options = {"header_row": header_configuration["header_row"]} if header_configuration else {}
@@ -364,7 +382,7 @@ def read_excel_table(source_content: bytes, sheet_name: str) -> pl.DataFrame:
         raise HTTPException(422, f'A aba "{sheet_name}" não possui dados para importar. Escolha outra aba da planilha.')
     if header_configuration and len(header_configuration["header_names"]) == source_table.width:
         source_table = source_table.rename(dict(zip(source_table.columns, header_configuration["header_names"])))
-    return source_table
+    return trim_trailing_spreadsheet_notes(source_table)
 
 
 def resolve_sheet_name(source_name: str, source_content: bytes, requested_sheet_name: str | None) -> str | None:
@@ -428,7 +446,7 @@ def profile_table(source_name: str, source_content: bytes, source_url: str | Non
         "suggestions": suggest_mapping(source_table),
     }
     if Path(source_name).suffix.lower() == ".xlsx":
-        source_profile["sheets"] = workbook_sheets(source_content)
+        source_profile["sheets"] = [{**sheet, "rows": source_table.height} if sheet["name"] == selected_sheet else sheet for sheet in workbook_sheets(source_content)]
         source_profile["selected_sheet"] = selected_sheet
         header_configuration = infer_excel_headers(source_content, str(selected_sheet))
         if header_configuration:
