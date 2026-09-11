@@ -24,6 +24,9 @@ export function MunicipalApproval({ importId, sourceProfile }: MunicipalApproval
   const [registration, setRegistration] = useState<IndicatorRegistration>(() => registrationFromRecommendation(recommendedIndicator));
   const [isRegistering, setIsRegistering] = useState(false);
   const [registrationMessage, setRegistrationMessage] = useState("");
+  const [wideMeasureField, setWideMeasureField] = useState(recommendedIndicator?.value_field ?? "");
+  const [isNormalizing, setIsNormalizing] = useState(false);
+  const [normalizationMessage, setNormalizationMessage] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -56,8 +59,29 @@ export function MunicipalApproval({ importId, sourceProfile }: MunicipalApproval
   function useRecommendation(recommendation: IndicatorRecommendation) {
     setRegistration(registrationFromRecommendation(recommendation));
     setValueField(recommendation.value_field);
+    setWideMeasureField(recommendation.value_field);
     setShowRegistration(true);
     setRegistrationMessage("");
+  }
+
+  async function normalizeWideTable() {
+    setIsNormalizing(true);
+    setNormalizationMessage("");
+    try {
+      const response = await fetch(`/api/imports/${importId}/normalize-municipal-wide`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ municipality_field: municipalityField, value_field: wideMeasureField }) });
+      const payload = await response.json();
+      if (!response.ok) setNormalizationMessage(payload.detail ?? payload.message ?? "Não foi possível transformar esta coluna.");
+      else {
+        setMunicipalityField(payload.municipality_field);
+        setYearField(payload.year_field);
+        setValueField(payload.value_field);
+        setNormalizationMessage(`${payload.transformed_rows.toLocaleString("pt-BR")} registros foram preparados para ${new Date(`${payload.reference_period}T12:00:00`).toLocaleDateString("pt-BR", { month: "long", year: "numeric" })}. ${payload.skipped_rows ? `${payload.skipped_rows.toLocaleString("pt-BR")} linhas sem código IBGE ou valor ficaram fora.` : ""}`);
+      }
+    } catch {
+      setNormalizationMessage("Não foi possível acessar o serviço de tratamento.");
+    } finally {
+      setIsNormalizing(false);
+    }
   }
 
   async function registerIndicator(event: FormEvent<HTMLFormElement>) {
@@ -104,6 +128,13 @@ export function MunicipalApproval({ importId, sourceProfile }: MunicipalApproval
   return <section className={styles.analysisPanel}>
     <h2>Gravar no painel municipal</h2>
     <p className={styles.profileGuidance}>Cadastre o indicador se ele ainda não existir. Depois associe as colunas da fonte e grave apenas dados municipais já revisados.</p>
+    {sourceProfile.columns.some((column) => /(?:janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)_20\d{2}/.test(column.name.normalize("NFD").replace(/[\u0300-\u036f]/g, ""))) ? <section className={styles.processHint}>
+      <strong>Planilha com períodos nas colunas</strong>
+      <p>Esta fonte organiza cada mês em uma coluna. Escolha um indicador mensal para transformá-lo em registros de município, período e valor antes da aprovação.</p>
+      <label>Coluna do indicador mensal<select onChange={(event) => setWideMeasureField(event.target.value)} value={wideMeasureField}><option value="">Selecione uma coluna</option>{sourceProfile.columns.filter((column) => /(?:janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)_20\d{2}/.test(column.name.normalize("NFD").replace(/[\u0300-\u036f]/g, ""))).map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}</select></label>
+      {normalizationMessage ? <p className={styles.profileGuidance}>{normalizationMessage}</p> : null}
+      <button disabled={isNormalizing || !municipalityField || !wideMeasureField} onClick={normalizeWideTable} type="button">{isNormalizing ? "Transformando..." : "Preparar registros mensais"}</button>
+    </section> : null}
     {sourceProfile.indicator_recommendations?.length ? <div className={styles.indicatorRecommendations}>{sourceProfile.indicator_recommendations.map((recommendation) => <div className={styles.indicatorRecommendation} key={recommendation.code}><div><strong>{recommendation.name}</strong><p>{recommendation.unit} · campo {recommendation.value_field}</p></div><button onClick={() => useRecommendation(recommendation)} type="button">Usar como base</button></div>)}</div> : null}
     {registrationMessage ? <p className={styles.profileGuidance}>{registrationMessage}</p> : null}
     {showRegistration ? <form className={styles.sourceForm} onSubmit={registerIndicator}>

@@ -49,11 +49,16 @@ class ImportDecision(BaseModel):
 
 
 class MunicipalApproval(BaseModel):
-    indicator_id: str
+  indicator_id: str
+  municipality_field: str
+  year_field: str
+  value_field: str
+  unit: str
+
+
+class WideMunicipalTransform(BaseModel):
     municipality_field: str
-    year_field: str
     value_field: str
-    unit: str
 
 
 class GenericApproval(BaseModel):
@@ -144,6 +149,15 @@ def normalize_table_columns(source_table: pl.DataFrame) -> pl.DataFrame:
         normalized_names.append(unique_name)
         used_names.add(unique_name)
     return source_table.rename(dict(zip(source_table.columns, normalized_names)))
+
+
+def period_from_column_name(column_name: str) -> tuple[int, int] | None:
+    month_numbers = {"janeiro": 1, "fevereiro": 2, "marco": 3, "abril": 4, "maio": 5, "junho": 6, "julho": 7, "agosto": 8, "setembro": 9, "outubro": 10, "novembro": 11, "dezembro": 12}
+    normalized_name = normalized_sheet_title(normalize_column(column_name))
+    period_match = re.search(r"(" + "|".join(month_numbers) + r")_(20[0-9]{2})", normalized_name)
+    if not period_match:
+        return None
+    return int(period_match.group(2)), month_numbers[period_match.group(1)]
 
 
 def is_public_address(host_name: str) -> bool:
@@ -731,6 +745,19 @@ def approve_municipal_import(import_id: str, approval: MunicipalApproval) -> dic
     if not approval_response.is_success:
         raise HTTPException(502, "Não foi possível aprovar a importação municipal.")
     return {"import_id": import_id, "status": "approved", "approved_rows": approval_response.json()}
+
+
+@app.post("/imports/{import_id}/normalize-municipal-wide")
+def normalize_municipal_wide_import(import_id: str, transformation: WideMunicipalTransform) -> dict[str, Any]:
+    period = period_from_column_name(transformation.value_field)
+    if not period:
+        raise HTTPException(422, "A coluna escolhida não informa um mês e ano no título. Escolha uma coluna como julho_2026_saldos.")
+    reference_year, reference_month = period
+    transformation_response = httpx.post(supabase_url("/rest/v1/rpc/normalize_municipal_wide_import"), headers=supabase_headers(), json={"selected_import_id": import_id, "selected_municipality_field": transformation.municipality_field, "selected_value_field": transformation.value_field, "selected_reference_year": reference_year, "selected_reference_month": reference_month}, timeout=60.0)
+    if not transformation_response.is_success:
+        raise HTTPException(502, "Não foi possível guardar a versão normalizada das linhas. Confirme se a migration 0009_published_values.sql foi executada no Supabase.")
+    outcome = transformation_response.json()[0]
+    return {"import_id": import_id, "municipality_field": "municipality_ibge_code", "year_field": "reference_year", "value_field": "value", "reference_period": f"{reference_year}-{reference_month:02d}-01", **outcome}
 
 
 @app.post("/imports/{import_id}/approve")
