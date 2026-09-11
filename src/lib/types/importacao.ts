@@ -19,7 +19,7 @@ export type SourceProfile = {
   sample: Record<string, string | number | null>[];
   suggestions: Record<string, string>;
   agent_assessment?: { status: string; summary: string };
-  sheets?: { name: string; rows: number; columns: number }[];
+  sheets?: { name: string; rows: number; columns: number; has_data?: boolean }[];
   selected_sheet?: string | null;
   reading_notes?: string[];
 };

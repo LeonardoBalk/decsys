@@ -293,9 +293,9 @@ def normalize_brazilian_decimals(source_table: pl.DataFrame) -> pl.DataFrame:
     return source_table.with_columns(normalized_columns) if normalized_columns else source_table
 
 
-def workbook_sheets(source_content: bytes) -> list[dict[str, int | str]]:
+def workbook_sheets(source_content: bytes) -> list[dict[str, int | str | bool]]:
     workbook = load_workbook(BytesIO(source_content), read_only=True, data_only=True)
-    return [{"name": worksheet.title, "rows": worksheet.max_row, "columns": worksheet.max_column} for worksheet in workbook.worksheets]
+    return [{"name": worksheet.title, "rows": worksheet.max_row, "columns": worksheet.max_column, "has_data": any(any(has_cell_value(cell_value) for cell_value in row_values) for row_values in worksheet.iter_rows(values_only=True))} for worksheet in workbook.worksheets]
 
 
 def has_cell_value(cell_value: Any) -> bool:
@@ -358,7 +358,10 @@ def infer_excel_headers(source_content: bytes, sheet_name: str) -> dict[str, Any
 def read_excel_table(source_content: bytes, sheet_name: str) -> pl.DataFrame:
     header_configuration = infer_excel_headers(source_content, sheet_name)
     read_options = {"header_row": header_configuration["header_row"]} if header_configuration else {}
-    source_table = pl.read_excel(BytesIO(source_content), sheet_name=sheet_name, infer_schema_length=500, read_options=read_options)
+    try:
+        source_table = pl.read_excel(BytesIO(source_content), sheet_name=sheet_name, infer_schema_length=500, read_options=read_options)
+    except pl.exceptions.NoDataError:
+        raise HTTPException(422, f'A aba "{sheet_name}" não possui dados para importar. Escolha outra aba da planilha.')
     if header_configuration and len(header_configuration["header_names"]) == source_table.width:
         source_table = source_table.rename(dict(zip(source_table.columns, header_configuration["header_names"])))
     return source_table
