@@ -681,7 +681,7 @@ def list_dashboard_values(indicator_code: str | None = None, dataset_id: str | N
         query_parameters["indicator_code"] = f"eq.{indicator_code}"
     if dataset_id:
         query_parameters["dataset_id"] = f"eq.{dataset_id}"
-    values_response = httpx.get(supabase_url("/rest/v1/dashboard_values"), params=query_parameters, headers=supabase_headers(profile="core"), timeout=30.0)
+    values_response = httpx.get(supabase_url("/rest/v1/dashboard_values"), params=query_parameters, headers=supabase_headers(), timeout=30.0)
     if not values_response.is_success:
         raise HTTPException(502, "Não foi possível carregar os dados revisados.")
     return values_response.json()
