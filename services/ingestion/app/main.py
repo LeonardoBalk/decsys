@@ -5,6 +5,7 @@ import os
 import re
 import socket
 import csv
+import time
 import unicodedata
 import zipfile
 from hashlib import sha256
@@ -27,6 +28,8 @@ load_dotenv(Path(__file__).parents[1] / ".env")
 
 app = FastAPI(title="Decsys Ingestion API", version="0.2.0")
 ai_assessment_size_limit = 20 * 1024 * 1024
+ai_assessment_timeout = 10.0
+ai_unavailable_until = 0.0
 supported_extensions = {".csv", ".xlsx", ".xls", ".json"}
 archive_extensions = {".zip", ".gz"}
 acceptable_extensions = supported_extensions | archive_extensions
@@ -292,15 +295,29 @@ def detect_csv_separator(csv_text: str) -> str:
 
 
 def normalize_brazilian_decimals(source_table: pl.DataFrame) -> pl.DataFrame:
-    numeric_pattern = r"^-?[0-9]{1,3}(\.[0-9]{3})*(,[0-9]+)?$|^-?[0-9]+,[0-9]+$"
+    numeric_pattern = r"^-?(?:(?:[0-9]{1,3}(\.[0-9]{3})*|[0-9]+)(,[0-9]+)?|,[0-9]+)$"
     normalized_columns: list[pl.Expr] = []
     for column_name, data_type in zip(source_table.columns, source_table.dtypes):
         if data_type != pl.String:
             continue
-        non_empty_values = source_table[column_name].drop_nulls().str.strip_chars()
-        if non_empty_values.len() and non_empty_values.str.contains(numeric_pattern).all():
-            normalized_columns.append(pl.col(column_name).str.replace_all(".", "", literal=True).str.replace(",", ".", literal=True).cast(pl.Float64, strict=False).alias(column_name))
+        non_empty_values = [str(value).strip() for value in source_table[column_name].drop_nulls().to_list() if str(value).strip() not in {"", "-"}]
+        numeric_values = [value for value in non_empty_values if re.fullmatch(numeric_pattern, value)]
+        has_decimal_separator = any("," in value for value in numeric_values)
+        if non_empty_values and has_decimal_separator and len(numeric_values) / len(non_empty_values) >= 0.8:
+            normalized_columns.append(pl.col(column_name).cast(pl.String).str.strip_chars().replace("-", None).str.replace_all(".", "", literal=True).str.replace(",", ".", literal=True).cast(pl.Float64, strict=False).alias(column_name))
     return source_table.with_columns(normalized_columns) if normalized_columns else source_table
+
+
+def read_json_table(source_content: bytes) -> pl.DataFrame:
+    source_records = json.loads(source_content)
+    if isinstance(source_records, list) and source_records and isinstance(source_records[0], dict):
+        label_record = source_records[0]
+        has_sidra_labels = "V" in label_record and any(str(value).endswith("(Código)") for value in label_record.values())
+        if has_sidra_labels:
+            source_table = pl.from_dicts(source_records[1:])
+            readable_names = unique_header_names([str(label_record.get(column_name, column_name)) for column_name in source_table.columns])
+            return source_table.rename(dict(zip(source_table.columns, readable_names)))
+    return pl.read_json(BytesIO(source_content))
 
 
 def normalized_sheet_title(sheet_title: str) -> str:
@@ -436,7 +453,7 @@ def read_table(source_name: str, source_content: bytes, sheet_name: str | None =
     if source_extension == ".xls":
         return pl.read_excel(BytesIO(source_content), sheet_name=sheet_name, infer_schema_length=500)
     if source_extension == ".json":
-        return pl.read_json(BytesIO(source_content))
+        return read_json_table(source_content)
     raise HTTPException(415, "Formato não suportado. Envie ou indique CSV, XLSX, XLS, JSON, ou um .zip/.gz contendo um desses formatos.")
 
 
@@ -526,17 +543,20 @@ def assess_with_openai(source_profile: dict[str, Any]) -> dict[str, Any]:
 
 def assess_with_gemini(source_profile: dict[str, Any]) -> dict[str, Any]:
     gemini_model = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
-    gemini_response = httpx.post(f"https://generativelanguage.googleapis.com/v1beta/models/{gemini_model}:generateContent", params={"key": os.environ["GEMINI_API_KEY"]}, json={"contents": [{"role": "user", "parts": [{"text": assessment_prompt(source_profile)}]}], "generationConfig": {"responseMimeType": "application/json", "responseJsonSchema": assessment_schema(), "temperature": 0.1}}, timeout=30.0)
+    gemini_response = httpx.post(f"https://generativelanguage.googleapis.com/v1beta/models/{gemini_model}:generateContent", params={"key": os.environ["GEMINI_API_KEY"]}, json={"contents": [{"role": "user", "parts": [{"text": assessment_prompt(source_profile)}]}], "generationConfig": {"responseMimeType": "application/json", "responseJsonSchema": assessment_schema(), "temperature": 0.1}}, timeout=ai_assessment_timeout)
     gemini_response.raise_for_status()
     response_text = gemini_response.json()["candidates"][0]["content"]["parts"][0]["text"]
     return {"status": "available", "provider": "gemini", **json.loads(response_text)}
 
 
 def assess_source(source_profile: dict[str, Any]) -> dict[str, Any]:
+    global ai_unavailable_until
     provider = os.getenv("AI_PROVIDER", "gemini").lower()
     has_provider_key = (provider == "gemini" and os.getenv("GEMINI_API_KEY")) or (provider == "openai" and os.getenv("OPENAI_API_KEY"))
     if not has_provider_key:
         return {"status": "not_configured", "summary": f"A leitura estrutural foi concluída. Configure a chave do provedor {provider} para receber a avaliação do agente."}
+    if time.monotonic() < ai_unavailable_until:
+        return {"status": "unavailable", "summary": "A estrutura foi lida. A avaliação por IA está temporariamente indisponível, então o Decsys seguirá com sugestões automáticas."}
     try:
         if provider == "openai":
             return assess_with_openai(source_profile)
@@ -544,6 +564,7 @@ def assess_source(source_profile: dict[str, Any]) -> dict[str, Any]:
             return assess_with_gemini(source_profile)
         return {"status": "not_configured", "summary": "O provedor de IA configurado não é suportado."}
     except Exception:
+        ai_unavailable_until = time.monotonic() + 300
         return {"status": "unavailable", "summary": "A estrutura foi lida, mas a avaliação do agente não ficou disponível para esta fonte."}
 
 
