@@ -13,7 +13,7 @@
 .sidebarFootnote { margin: 0; color: var(--color-text-muted); font-size: var(--text-caption); }
 
 /* Workspace shell + header */
-.workspaceShell { width: min(100%, 1200px); margin: 0 auto; padding: 22px 48px 40px; }
+.workspaceShell { width: min(100%, 1200px); min-width: 0; margin: 0 auto; padding: 22px 48px 40px; }
 .workspaceHeader { display: flex; justify-content: space-between; align-items: center; padding: 0 0 18px; border-bottom: 1px solid var(--color-border-muted); color: var(--color-text-muted); font-size: var(--text-caption); }
 .workspaceHeader p { margin: 0; }
 .workspaceHeader span { margin: 0 5px; color: var(--color-border-strong); }
@@ -48,7 +48,7 @@
 .stepperItem[data-status="completed"] .stepperLabel strong { color: var(--color-text-light); }
 
 /* Step screen — one step fills the view, own heading, own primary action */
-.stepScreen { display: grid; gap: var(--space-6); }
+.stepScreen { display: grid; min-width: 0; gap: var(--space-6); }
 .stepScreenHeader { display: grid; gap: 4px; margin-bottom: var(--space-2); }
 .stepScreenHeader h2 { margin-bottom: 0; }
 .stepScreenHeader p:not(.eyebrow) { margin: 0; color: var(--color-text-lighter); font-size: var(--text-sm); }
@@ -89,11 +89,11 @@
 .profileSummary dt { margin-bottom: 5px; color: var(--color-text-muted); font-size: var(--text-caption); font-weight: 500; }
 .profileSummary dd { margin: 0; color: var(--color-text); font-size: var(--text-sm); font-weight: 600; font-family: var(--font-mono); }
 .profileGuidance { margin: 0; color: var(--color-text-light); font-size: var(--text-sm); line-height: var(--leading-relaxed); }
-.tableWorkspace { padding: var(--space-6); border: 1px solid var(--color-border-muted); border-radius: var(--radius-lg); background: var(--color-surface-100); }
+.tableWorkspace { min-width: 0; padding: var(--space-6); border: 1px solid var(--color-border-muted); border-radius: var(--radius-lg); background: var(--color-surface-100); }
 .tableHeading { display: flex; justify-content: space-between; align-items: flex-end; gap: var(--space-6); margin-bottom: var(--space-4); }
 .tableHeading h2 { margin-bottom: 0; }
 .tableHeading > span { color: var(--color-text-muted); font-size: var(--text-caption); font-family: var(--font-mono); }
-.tableWrap { overflow: auto; border: 1px solid var(--color-border-muted); border-radius: var(--radius-md); background: var(--color-surface-200); }
+.tableWrap { width: 100%; max-width: 100%; max-height: 560px; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; border: 1px solid var(--color-border-muted); border-radius: var(--radius-md); background: var(--color-surface-200); }
 .tableWrap table { width: 100%; min-width: 700px; border-collapse: collapse; font-size: var(--text-caption); }
 .tableWrap th { background: var(--color-surface-300); color: var(--color-text-lighter); font-size: var(--text-caption); font-weight: 600; letter-spacing: .015em; text-align: left; }
 .tableWrap th, .tableWrap td { min-width: 140px; padding: 10px 12px; border-right: 1px solid var(--color-border-muted); border-bottom: 1px solid var(--color-border-muted); white-space: nowrap; }
