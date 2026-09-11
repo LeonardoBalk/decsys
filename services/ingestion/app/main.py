@@ -58,6 +58,15 @@ class GenericApproval(BaseModel):
     explanation: str
 
 
+class IndicatorRegistration(BaseModel):
+    code: str
+    name: str
+    dimension: str
+    definition: str
+    unit: str
+    expected_frequency: str | None = None
+
+
 def supabase_headers(prefer: str | None = None) -> dict[str, str]:
     service_role_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
     if not service_role_key:
@@ -444,6 +453,7 @@ def profile_table(source_name: str, source_content: bytes, source_url: str | Non
         "columns": [{"name": column_name, "dtype": str(source_table[column_name].dtype), "null_count": null_counts[column_name]} for column_name in source_table.columns],
         "sample": source_table.head(20).to_dicts(),
         "suggestions": suggest_mapping(source_table),
+        "indicator_recommendations": recommend_indicators(source_table),
     }
     if Path(source_name).suffix.lower() == ".xlsx":
         source_profile["sheets"] = [{**sheet, "rows": source_table.height} if sheet["name"] == selected_sheet else sheet for sheet in workbook_sheets(source_content)]
@@ -469,6 +479,36 @@ def suggest_mapping(source_table: pl.DataFrame) -> dict[str, str]:
         if column_name in {"valor", "value", "indice", "percentual"}:
             suggestions["value"] = column_name
     return suggestions
+
+
+def latest_measure_field(source_columns: list[str], measure_token: str) -> str | None:
+    monthly_pattern = re.compile(r"(janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)_20[0-9]{2}.*" + re.escape(measure_token) + r"$")
+    normalized_columns = [(column_name, normalized_sheet_title(normalize_column(column_name))) for column_name in source_columns]
+    return next((column_name for column_name, normalized_column_name in reversed(normalized_columns) if monthly_pattern.search(normalized_column_name)), next((column_name for column_name, normalized_column_name in reversed(normalized_columns) if measure_token in normalized_column_name), None))
+
+
+def recommend_indicators(source_table: pl.DataFrame) -> list[dict[str, str]]:
+    source_columns = source_table.columns
+    normalized_source_columns = [normalized_sheet_title(normalize_column(column_name)) for column_name in source_columns]
+    source_columns_text = " ".join(normalized_source_columns)
+    recommendations: list[dict[str, str]] = []
+    if "codigo" in source_columns_text and "municipio" in source_columns_text and any(token in source_columns_text for token in ("admissoes", "desligamentos", "saldos", "estoque")):
+        for measure_token, code, name, definition in (
+            ("saldos", "caged_saldo_empregos", "Saldo de empregos formais", "Diferença entre admissões e desligamentos formais no período."),
+            ("admissoes", "caged_admissoes", "Admissões formais", "Quantidade de admissões formais registradas no período."),
+            ("desligamentos", "caged_desligamentos", "Desligamentos formais", "Quantidade de desligamentos formais registrados no período."),
+            ("estoque", "caged_estoque_empregos", "Estoque de empregos formais", "Quantidade de vínculos formais de emprego no período."),
+        ):
+            value_field = latest_measure_field(source_columns, measure_token)
+            if value_field:
+                recommendations.append({"code": code, "name": name, "dimension": "trabalho", "definition": definition, "unit": "pessoas", "expected_frequency": "mensal", "value_field": value_field})
+        return recommendations
+    for column_name in source_columns:
+        normalized_name = normalize_column(column_name)
+        if "potencia" in normalized_name and normalized_name.endswith("kw"):
+            recommendations.append({"code": "potencia_geracao_instalada", "name": "Potência de geração instalada", "dimension": "energia", "definition": "Potência declarada de empreendimentos de geração de energia.", "unit": "kW", "expected_frequency": "anual", "value_field": column_name})
+            break
+    return recommendations
 
 
 def assessment_schema() -> dict[str, Any]:
@@ -573,6 +613,19 @@ def list_indicators() -> list[dict[str, Any]]:
     if not indicators_response.is_success:
         raise HTTPException(502, "Não foi possível carregar os indicadores.")
     return indicators_response.json()
+
+
+@app.post("/indicators")
+def create_indicator(indicator: IndicatorRegistration) -> dict[str, Any]:
+    indicator_code = normalize_column(indicator.code)
+    if not re.fullmatch(r"[a-z][a-z0-9_]{2,99}", indicator_code):
+        raise HTTPException(422, "O código deve ter letras minúsculas, números ou sublinhados e começar com uma letra.")
+    indicator_response = httpx.post(supabase_url("/rest/v1/indicators"), headers={**supabase_headers("return=representation"), "Content-Profile": "municipal"}, json={"code": indicator_code, "name": indicator.name.strip(), "dimension": indicator.dimension.strip(), "definition": indicator.definition.strip(), "unit": indicator.unit.strip(), "expected_frequency": indicator.expected_frequency.strip() if indicator.expected_frequency else None}, timeout=30.0)
+    if indicator_response.status_code == 409:
+        raise HTTPException(409, "Já existe um indicador com esse código.")
+    if not indicator_response.is_success:
+        raise HTTPException(502, "Não foi possível cadastrar o indicador no Supabase.")
+    return indicator_response.json()[0]
 
 
 @app.post("/profile")
