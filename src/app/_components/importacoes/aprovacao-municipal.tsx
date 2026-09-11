@@ -53,9 +53,9 @@ export function MunicipalApproval({ importId, sourceProfile }: MunicipalApproval
     setRegistration((currentRegistration) => ({ ...currentRegistration, [fieldName]: fieldValue }));
   }
 
-  function useRecommendation() {
-    setRegistration(registrationFromRecommendation(recommendedIndicator));
-    if (recommendedIndicator) setValueField(recommendedIndicator.value_field);
+  function useRecommendation(recommendation: IndicatorRecommendation) {
+    setRegistration(registrationFromRecommendation(recommendation));
+    setValueField(recommendation.value_field);
     setShowRegistration(true);
     setRegistrationMessage("");
   }
@@ -104,7 +104,7 @@ export function MunicipalApproval({ importId, sourceProfile }: MunicipalApproval
   return <section className={styles.analysisPanel}>
     <h2>Gravar no painel municipal</h2>
     <p className={styles.profileGuidance}>Cadastre o indicador se ele ainda não existir. Depois associe as colunas da fonte e grave apenas dados municipais já revisados.</p>
-    {recommendedIndicator ? <div className={styles.indicatorRecommendation}><div><strong>Sugestão automática</strong><p>{recommendedIndicator.name} · {recommendedIndicator.unit} · campo {recommendedIndicator.value_field}</p></div><button onClick={useRecommendation} type="button">Usar como base</button></div> : null}
+    {sourceProfile.indicator_recommendations?.length ? <div className={styles.indicatorRecommendations}>{sourceProfile.indicator_recommendations.map((recommendation) => <div className={styles.indicatorRecommendation} key={recommendation.code}><div><strong>{recommendation.name}</strong><p>{recommendation.unit} · campo {recommendation.value_field}</p></div><button onClick={() => useRecommendation(recommendation)} type="button">Usar como base</button></div>)}</div> : null}
     {registrationMessage ? <p className={styles.profileGuidance}>{registrationMessage}</p> : null}
     {showRegistration ? <form className={styles.sourceForm} onSubmit={registerIndicator}>
       <h3>Cadastrar indicador</h3>
