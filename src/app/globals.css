@@ -1,0 +1,16 @@
+* { box-sizing: border-box; }
+html { background: var(--color-canvas); }
+body {
+  min-width: 320px;
+  margin: 0;
+  background: var(--color-canvas);
+  color: var(--color-text);
+  font-family: var(--font-sans);
+  font-size: var(--text-body);
+  line-height: var(--leading-normal);
+  font-feature-settings: "tnum" 1, "cv02", "cv03", "cv04", "cv11";
+  text-rendering: optimizeLegibility;
+}
+button, input { font: inherit; }
+button { -webkit-font-smoothing: antialiased; }
+::selection { background: var(--color-brand); color: var(--color-brand-contrast); }

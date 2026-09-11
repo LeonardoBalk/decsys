@@ -1,0 +1,69 @@
+:root {
+  color-scheme: dark;
+
+  /* Superfícies — progressão do fundo até o elemento mais elevado */
+  --color-canvas: #0a0a0b;
+  --color-surface-100: #101113;
+  --color-surface-200: #17181a;
+  --color-surface-300: #202226;
+
+  /* Bordas */
+  --color-border-muted: #23252a;
+  --color-border: #2f3136;
+  --color-border-strong: #3f424a;
+
+  /* Texto */
+  --color-text: #f2f3f5;
+  --color-text-light: #c7cad1;
+  --color-text-lighter: #8a8f98;
+  --color-text-muted: #62666d;
+
+  /* Marca / ação — único acento cromático, reservado à ação primária */
+  --color-brand: #3e9eff;
+  --color-brand-hover: #2b83e0;
+  --color-brand-contrast: #051423;
+
+  /* Estados semânticos */
+  --color-destructive: #e5484d;
+  --color-warning: #f5a623;
+  --color-success: #3ecf8e;
+  --color-info: #02b8cc;
+
+  /* Tipografia */
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --font-mono: var(--font-source-code-pro), "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  --text-caption: 12px;
+  --text-sm: 13px;
+  --text-body: 14px;
+  --text-body-lg: 16px;
+  --text-heading-sm: 20px;
+  --text-heading: 28px;
+  --text-heading-lg: 36px;
+
+  --leading-tight: 1.15;
+  --leading-normal: 1.5;
+  --leading-relaxed: 1.6;
+
+  --tracking-tight: -0.02em;
+
+  /* Espaçamento — escala de 4px */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* Raio */
+  --radius-sm: 4px;
+  --radius-md: 6px;
+  --radius-lg: 10px;
+  --radius-full: 9999px;
+
+  /* Elevação — reservada a camadas que flutuam sobre o conteúdo */
+  --shadow-elevated: 0 4px 24px rgba(0, 0, 0, 0.4);
+  --shadow-inset-border: inset 0 0 0 1px var(--color-border-muted);
+}
