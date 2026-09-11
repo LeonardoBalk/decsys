@@ -77,7 +77,7 @@ def supabase_url(path: str) -> str:
 def persist_import(source_name: str, source_content: bytes, source_url: str | None, dataset_id: str, import_title: str, reference_year: int | None, sheet_name: str | None = None) -> dict[str, Any]:
     selected_sheet = resolve_sheet_name(source_name, source_content, sheet_name)
     source_table = read_table(source_name, source_content, selected_sheet)
-    source_table = source_table.rename({column_name: normalize_column(column_name) for column_name in source_table.columns})
+    source_table = normalize_table_columns(source_table)
     source_profile = profile_table(source_name, source_content, source_url, "uploaded_file" if source_url is None else "remote_file", selected_sheet)
     source_record = {"name": source_name, "base_url": source_url}
     source_response = httpx.post(supabase_url("/rest/v1/sources"), headers=supabase_headers("return=representation"), json=source_record, timeout=30.0)
@@ -114,6 +114,23 @@ def persist_import(source_name: str, source_content: bytes, source_url: str | No
 
 def normalize_column(column_name: str) -> str:
     return "_".join(column_name.strip().lower().replace("/", " ").split())
+
+
+def normalize_table_columns(source_table: pl.DataFrame) -> pl.DataFrame:
+    normalized_names: list[str] = []
+    used_names: set[str] = set()
+    for position, column_name in enumerate(source_table.columns, start=1):
+        normalized_name = normalize_column(column_name)
+        if not normalized_name or normalized_name.startswith("__unnamed__"):
+            normalized_name = f"coluna_{position}"
+        unique_name = normalized_name
+        suffix = 2
+        while unique_name in used_names:
+            unique_name = f"{normalized_name}_{suffix}"
+            suffix += 1
+        normalized_names.append(unique_name)
+        used_names.add(unique_name)
+    return source_table.rename(dict(zip(source_table.columns, normalized_names)))
 
 
 def is_public_address(host_name: str) -> bool:
@@ -281,9 +298,78 @@ def workbook_sheets(source_content: bytes) -> list[dict[str, int | str]]:
     return [{"name": worksheet.title, "rows": worksheet.max_row, "columns": worksheet.max_column} for worksheet in workbook.worksheets]
 
 
-def resolve_sheet_name(source_name: str, source_content: bytes, requested_sheet_name: str | None) -> str | None:
-    if Path(source_name).suffix.lower() not in {".xlsx", ".xls"}:
+def has_cell_value(cell_value: Any) -> bool:
+    return cell_value is not None and str(cell_value).strip() != ""
+
+
+def is_numeric_cell(cell_value: Any) -> bool:
+    return isinstance(cell_value, (int, float)) and not isinstance(cell_value, bool)
+
+
+def unique_header_names(header_names: list[str]) -> list[str]:
+    resolved_names: list[str] = []
+    used_names: set[str] = set()
+    for position, header_name in enumerate(header_names, start=1):
+        base_name = header_name or f"Coluna {position}"
+        unique_name = base_name
+        suffix = 2
+        while unique_name in used_names:
+            unique_name = f"{base_name} ({suffix})"
+            suffix += 1
+        resolved_names.append(unique_name)
+        used_names.add(unique_name)
+    return resolved_names
+
+
+def infer_excel_headers(source_content: bytes, sheet_name: str) -> dict[str, Any] | None:
+    workbook = load_workbook(BytesIO(source_content), read_only=True, data_only=True)
+    worksheet = workbook[sheet_name]
+    sample_rows = list(worksheet.iter_rows(min_row=1, max_row=min(worksheet.max_row, 40), values_only=True))
+    data_row_number = None
+    for row_number, row_values in enumerate(sample_rows, start=1):
+        populated_values = [cell_value for cell_value in row_values if has_cell_value(cell_value)]
+        numeric_count = sum(is_numeric_cell(cell_value) for cell_value in populated_values)
+        if len(populated_values) >= 3 and numeric_count >= 2 and numeric_count / len(populated_values) >= 0.2:
+            data_row_number = row_number
+            break
+    if data_row_number is None or data_row_number == 1:
         return None
+    header_start = data_row_number - 1
+    while header_start > 1 and any(has_cell_value(cell_value) for cell_value in sample_rows[header_start - 2]):
+        header_start -= 1
+    header_rows = sample_rows[header_start - 1:data_row_number - 1]
+    data_samples = sample_rows[data_row_number - 1:min(len(sample_rows), data_row_number + 5)]
+    carried_labels = ["" for _ in header_rows]
+    header_names: list[str] = []
+    for column_index in range(worksheet.max_column):
+        labels: list[str] = []
+        for level, header_row in enumerate(header_rows):
+            cell_value = header_row[column_index] if column_index < len(header_row) else None
+            if has_cell_value(cell_value):
+                carried_labels[level] = " ".join(str(cell_value).split())
+            if carried_labels[level] and carried_labels[level] not in labels:
+                labels.append(carried_labels[level])
+        has_data = any(column_index < len(data_row) and has_cell_value(data_row[column_index]) for data_row in data_samples)
+        if has_data:
+            header_names.append(" ".join(labels))
+    return {"header_row": data_row_number - 2, "header_rows": list(range(header_start, data_row_number)), "header_names": unique_header_names(header_names)}
+
+
+def read_excel_table(source_content: bytes, sheet_name: str) -> pl.DataFrame:
+    header_configuration = infer_excel_headers(source_content, sheet_name)
+    read_options = {"header_row": header_configuration["header_row"]} if header_configuration else {}
+    source_table = pl.read_excel(BytesIO(source_content), sheet_name=sheet_name, infer_schema_length=500, read_options=read_options)
+    if header_configuration and len(header_configuration["header_names"]) == source_table.width:
+        source_table = source_table.rename(dict(zip(source_table.columns, header_configuration["header_names"])))
+    return source_table
+
+
+def resolve_sheet_name(source_name: str, source_content: bytes, requested_sheet_name: str | None) -> str | None:
+    source_extension = Path(source_name).suffix.lower()
+    if source_extension not in {".xlsx", ".xls"}:
+        return None
+    if source_extension == ".xls":
+        return requested_sheet_name
     available_sheets = workbook_sheets(source_content)
     if requested_sheet_name:
         if requested_sheet_name not in {str(sheet["name"]) for sheet in available_sheets}:
@@ -292,7 +378,7 @@ def resolve_sheet_name(source_name: str, source_content: bytes, requested_sheet_
     sheet_candidates = sorted(available_sheets, key=lambda worksheet: int(worksheet["rows"]) * int(worksheet["columns"]), reverse=True)
     for sheet_candidate in sheet_candidates:
         try:
-            candidate_table = pl.read_excel(BytesIO(source_content), sheet_name=str(sheet_candidate["name"]), infer_schema_length=500)
+            candidate_table = read_excel_table(source_content, str(sheet_candidate["name"]))
             if candidate_table.height and candidate_table.width:
                 return str(sheet_candidate["name"])
         except pl.exceptions.NoDataError:
@@ -314,9 +400,11 @@ def read_table(source_name: str, source_content: bytes, sheet_name: str | None =
     if source_extension == ".csv":
         csv_text = decode_csv_text(source_content)
         return normalize_brazilian_decimals(pl.read_csv(StringIO(csv_text), try_parse_dates=True, infer_schema_length=500, separator=detect_csv_separator(csv_text)))
-    if source_extension in {".xlsx", ".xls"}:
+    if source_extension == ".xlsx":
         selected_sheet = resolve_sheet_name(source_name, source_content, sheet_name)
-        return pl.read_excel(BytesIO(source_content), sheet_name=selected_sheet, infer_schema_length=500)
+        return read_excel_table(source_content, str(selected_sheet))
+    if source_extension == ".xls":
+        return pl.read_excel(BytesIO(source_content), sheet_name=sheet_name, infer_schema_length=500)
     if source_extension == ".json":
         return pl.read_json(BytesIO(source_content))
     raise HTTPException(415, "Formato não suportado. Envie ou indique CSV, XLSX, XLS, JSON, ou um .zip/.gz contendo um desses formatos.")
@@ -325,7 +413,7 @@ def read_table(source_name: str, source_content: bytes, sheet_name: str | None =
 def profile_table(source_name: str, source_content: bytes, source_url: str | None, source_kind: str, sheet_name: str | None = None) -> dict[str, Any]:
     selected_sheet = resolve_sheet_name(source_name, source_content, sheet_name)
     source_table = read_table(source_name, source_content, selected_sheet)
-    source_table = source_table.rename({column_name: normalize_column(column_name) for column_name in source_table.columns})
+    source_table = normalize_table_columns(source_table)
     null_counts = {column_name: int(source_table[column_name].null_count()) for column_name in source_table.columns}
     source_profile = {
         "kind": source_kind,
@@ -336,9 +424,12 @@ def profile_table(source_name: str, source_content: bytes, source_url: str | Non
         "sample": source_table.head(20).to_dicts(),
         "suggestions": suggest_mapping(source_table),
     }
-    if Path(source_name).suffix.lower() in {".xlsx", ".xls"}:
+    if Path(source_name).suffix.lower() == ".xlsx":
         source_profile["sheets"] = workbook_sheets(source_content)
         source_profile["selected_sheet"] = selected_sheet
+        header_configuration = infer_excel_headers(source_content, str(selected_sheet))
+        if header_configuration:
+            source_profile["reading_notes"] = [f"O Decsys identificou {len(header_configuration['header_rows'])} linha(s) de cabeçalho e combinou os títulos antes de ler os dados."]
     if len(source_content) > ai_assessment_size_limit:
         source_profile["agent_assessment"] = {"status": "skipped", "summary": f"A leitura estrutural foi concluída. O arquivo tem mais de {ai_assessment_size_limit // (1024 * 1024)} MB, então a avaliação por IA foi pulada para manter a resposta rápida."}
     else:

@@ -21,4 +21,5 @@ export type SourceProfile = {
   agent_assessment?: { status: string; summary: string };
   sheets?: { name: string; rows: number; columns: number }[];
   selected_sheet?: string | null;
+  reading_notes?: string[];
 };

@@ -10,6 +10,7 @@ export function InitialReading({ sourceProfile }: InitialReadingProps) {
       <p className={styles.fileName}>{sourceProfile.file_name}</p>
       {sourceProfile.source_url ? <a className={styles.sourceLink} href={sourceProfile.source_url} rel="noreferrer" target="_blank">Abrir origem</a> : null}
       <dl><div><dt>Colunas</dt><dd>{sourceProfile.columns.length}</dd></div><div><dt>Código municipal</dt><dd>{sourceProfile.suggestions.municipality_code ?? "não reconhecido"}</dd></div><div><dt>Ano</dt><dd>{sourceProfile.suggestions.reference_year ?? "não reconhecido"}</dd></div><div><dt>Valor</dt><dd>{sourceProfile.suggestions.value ?? "revisar"}</dd></div></dl>
+      {sourceProfile.reading_notes?.map((readingNote) => <p className={styles.profileGuidance} key={readingNote}>{readingNote}</p>)}
       <p className={styles.profileGuidance}>{sourceProfile.agent_assessment?.summary ?? "A próxima etapa vinculará essas colunas a um indicador da matriz e executará as validações antes da aprovação."}</p>
     </div>
   </section>;
