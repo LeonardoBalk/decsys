@@ -25,7 +25,6 @@ from pydantic import BaseModel, HttpUrl
 load_dotenv(Path(__file__).parents[1] / ".env")
 
 app = FastAPI(title="Decsys Ingestion API", version="0.2.0")
-# Above this, the AI structural assessment is skipped (kept fast) but the file is still profiled and imported normally.
 ai_assessment_size_limit = 20 * 1024 * 1024
 supported_extensions = {".csv", ".xlsx", ".xls", ".json"}
 archive_extensions = {".zip", ".gz"}
@@ -38,6 +37,7 @@ class LinkRequest(BaseModel):
     dataset_id: str | None = None
     title: str | None = None
     reference_year: int | None = None
+    sheet_name: str | None = None
 
 
 class ImportDecision(BaseModel):
@@ -74,10 +74,11 @@ def supabase_url(path: str) -> str:
     return f"{project_url}{path}"
 
 
-def persist_import(source_name: str, source_content: bytes, source_url: str | None, dataset_id: str, import_title: str, reference_year: int | None) -> dict[str, Any]:
-    source_table = read_table(source_name, source_content)
+def persist_import(source_name: str, source_content: bytes, source_url: str | None, dataset_id: str, import_title: str, reference_year: int | None, sheet_name: str | None = None) -> dict[str, Any]:
+    selected_sheet = resolve_sheet_name(source_name, source_content, sheet_name)
+    source_table = read_table(source_name, source_content, selected_sheet)
     source_table = source_table.rename({column_name: normalize_column(column_name) for column_name in source_table.columns})
-    source_profile = profile_table(source_name, source_content, source_url, "uploaded_file" if source_url is None else "remote_file")
+    source_profile = profile_table(source_name, source_content, source_url, "uploaded_file" if source_url is None else "remote_file", selected_sheet)
     source_record = {"name": source_name, "base_url": source_url}
     source_response = httpx.post(supabase_url("/rest/v1/sources"), headers=supabase_headers("return=representation"), json=source_record, timeout=30.0)
     if not source_response.is_success:
@@ -88,6 +89,14 @@ def persist_import(source_name: str, source_content: bytes, source_url: str | No
         raise HTTPException(502, "Não foi possível criar o rascunho da importação no Supabase.")
     import_record = import_response.json()[0]
     import_id = import_record["id"]
+    if selected_sheet:
+        sheet_records = []
+        for sheet_position, sheet in enumerate(workbook_sheets(source_content), start=1):
+            is_selected = sheet["name"] == selected_sheet
+            sheet_records.append({"import_id": import_id, "sheet_name": sheet["name"], "sheet_position": sheet_position, "row_count": sheet["rows"], "column_count": sheet["columns"], "columns_profile": source_profile["columns"] if is_selected else [], "sample_rows": source_profile["sample"] if is_selected else [], "selected_for_treatment": is_selected})
+        sheets_response = httpx.post(supabase_url("/rest/v1/import_sheets"), headers=supabase_headers(), json=sheet_records, timeout=30.0)
+        if not sheets_response.is_success:
+            raise HTTPException(502, "Não foi possível registrar as abas da planilha. Confirme se a migration 0008_import_sheets.sql foi executada no Supabase.")
     original_storage_path = f"imports/{import_id}/original/{source_name}"
     storage_response = httpx.post(supabase_url(f"/storage/v1/object/source-files/{original_storage_path}"), headers={**supabase_headers("resolution=merge-duplicates"), "Content-Type": "application/octet-stream", "x-upsert": "true"}, content=source_content, timeout=180.0)
     if not storage_response.is_success:
@@ -272,6 +281,25 @@ def workbook_sheets(source_content: bytes) -> list[dict[str, int | str]]:
     return [{"name": worksheet.title, "rows": worksheet.max_row, "columns": worksheet.max_column} for worksheet in workbook.worksheets]
 
 
+def resolve_sheet_name(source_name: str, source_content: bytes, requested_sheet_name: str | None) -> str | None:
+    if Path(source_name).suffix.lower() not in {".xlsx", ".xls"}:
+        return None
+    available_sheets = workbook_sheets(source_content)
+    if requested_sheet_name:
+        if requested_sheet_name not in {str(sheet["name"]) for sheet in available_sheets}:
+            raise HTTPException(422, "A aba selecionada não existe mais nessa planilha.")
+        return requested_sheet_name
+    sheet_candidates = sorted(available_sheets, key=lambda worksheet: int(worksheet["rows"]) * int(worksheet["columns"]), reverse=True)
+    for sheet_candidate in sheet_candidates:
+        try:
+            candidate_table = pl.read_excel(BytesIO(source_content), sheet_name=str(sheet_candidate["name"]), infer_schema_length=500)
+            if candidate_table.height and candidate_table.width:
+                return str(sheet_candidate["name"])
+        except pl.exceptions.NoDataError:
+            continue
+    raise HTTPException(422, "Nenhuma aba da planilha contém uma tabela que possa ser lida.")
+
+
 def read_table(source_name: str, source_content: bytes, sheet_name: str | None = None) -> pl.DataFrame:
     source_extension = Path(source_name).suffix.lower()
     if source_extension == ".gz":
@@ -287,22 +315,16 @@ def read_table(source_name: str, source_content: bytes, sheet_name: str | None =
         csv_text = decode_csv_text(source_content)
         return normalize_brazilian_decimals(pl.read_csv(StringIO(csv_text), try_parse_dates=True, infer_schema_length=500, separator=detect_csv_separator(csv_text)))
     if source_extension in {".xlsx", ".xls"}:
-        if sheet_name:
-            return pl.read_excel(BytesIO(source_content), sheet_name=sheet_name, infer_schema_length=500)
-        sheet_candidates = sorted(workbook_sheets(source_content), key=lambda worksheet: int(worksheet["rows"]) * int(worksheet["columns"]), reverse=True)
-        for sheet_candidate in sheet_candidates:
-            try:
-                return pl.read_excel(BytesIO(source_content), sheet_name=str(sheet_candidate["name"]), infer_schema_length=500)
-            except pl.exceptions.NoDataError:
-                continue
-        raise HTTPException(422, "Nenhuma aba da planilha contém uma tabela que possa ser lida.")
+        selected_sheet = resolve_sheet_name(source_name, source_content, sheet_name)
+        return pl.read_excel(BytesIO(source_content), sheet_name=selected_sheet, infer_schema_length=500)
     if source_extension == ".json":
         return pl.read_json(BytesIO(source_content))
     raise HTTPException(415, "Formato não suportado. Envie ou indique CSV, XLSX, XLS, JSON, ou um .zip/.gz contendo um desses formatos.")
 
 
 def profile_table(source_name: str, source_content: bytes, source_url: str | None, source_kind: str, sheet_name: str | None = None) -> dict[str, Any]:
-    source_table = read_table(source_name, source_content, sheet_name)
+    selected_sheet = resolve_sheet_name(source_name, source_content, sheet_name)
+    source_table = read_table(source_name, source_content, selected_sheet)
     source_table = source_table.rename({column_name: normalize_column(column_name) for column_name in source_table.columns})
     null_counts = {column_name: int(source_table[column_name].null_count()) for column_name in source_table.columns}
     source_profile = {
@@ -316,7 +338,7 @@ def profile_table(source_name: str, source_content: bytes, source_url: str | Non
     }
     if Path(source_name).suffix.lower() in {".xlsx", ".xls"}:
         source_profile["sheets"] = workbook_sheets(source_content)
-        source_profile["selected_sheet"] = sheet_name
+        source_profile["selected_sheet"] = selected_sheet
     if len(source_content) > ai_assessment_size_limit:
         source_profile["agent_assessment"] = {"status": "skipped", "summary": f"A leitura estrutural foi concluída. O arquivo tem mais de {ai_assessment_size_limit // (1024 * 1024)} MB, então a avaliação por IA foi pulada para manter a resposta rápida."}
     else:
@@ -461,7 +483,7 @@ async def profile_link(link_request: LinkRequest) -> dict[str, Any]:
                 return {"kind": "web_page", "source_url": source_url, "download_candidates": drive_candidates}
             raise HTTPException(415, "Não encontramos arquivos compatíveis nessa pasta do Google Drive, ou ela não está compartilhada publicamente.")
         source_name, source_content, _ = fetch_drive_file(drive_id)
-        return profile_table(source_name, source_content, source_url, "remote_file")
+        return profile_table(source_name, source_content, source_url, "remote_file", link_request.sheet_name)
     source_name, source_content, content_type, final_url = await download_source(source_url)
     if "text/html" in content_type or Path(source_name).suffix.lower() not in acceptable_extensions:
         ckan_candidates = discover_ckan_resources(final_url)
@@ -474,15 +496,15 @@ async def profile_link(link_request: LinkRequest) -> dict[str, Any]:
         if download_candidates:
             return {"kind": "web_page", "source_url": final_url, "download_candidates": download_candidates}
         raise HTTPException(415, "A página não apresentou um arquivo CSV, XLSX, XLS, JSON ou ZIP identificável.")
-    return profile_table(source_name, source_content, final_url, "remote_file")
+    return profile_table(source_name, source_content, final_url, "remote_file", link_request.sheet_name)
 
 
 @app.post("/imports/draft")
-async def create_import_draft(file: UploadFile = File(...), dataset_id: str | None = Form(None), title: str = Form(...), reference_year: int | None = Form(None)) -> dict[str, Any]:
+async def create_import_draft(file: UploadFile = File(...), dataset_id: str | None = Form(None), title: str = Form(...), reference_year: int | None = Form(None), sheet_name: str | None = Form(None)) -> dict[str, Any]:
     source_content = await file.read()
     if not file.filename:
         raise HTTPException(400, "Arquivo sem nome.")
-    return persist_import(file.filename, source_content, None, dataset_id, title, reference_year)
+    return persist_import(file.filename, source_content, None, dataset_id, title, reference_year, sheet_name)
 
 
 @app.post("/imports/draft-link")
@@ -494,11 +516,11 @@ async def create_link_import_draft(link_request: LinkRequest) -> dict[str, Any]:
         if drive_kind == "folder":
             raise HTTPException(415, "Escolha um arquivo específico da pasta do Google Drive antes de criar o rascunho.")
         source_name, source_content, _ = fetch_drive_file(drive_id)
-        return persist_import(source_name, source_content, source_url, link_request.dataset_id, link_request.title or source_name, link_request.reference_year)
+        return persist_import(source_name, source_content, source_url, link_request.dataset_id, link_request.title or source_name, link_request.reference_year, link_request.sheet_name)
     source_name, source_content, content_type, final_url = await download_source(source_url)
     if "text/html" in content_type or Path(source_name).suffix.lower() not in acceptable_extensions:
         raise HTTPException(415, "Use o link direto de um arquivo para criar o rascunho.")
-    return persist_import(source_name, source_content, final_url, link_request.dataset_id, link_request.title or source_name, link_request.reference_year)
+    return persist_import(source_name, source_content, final_url, link_request.dataset_id, link_request.title or source_name, link_request.reference_year, link_request.sheet_name)
 
 
 @app.post("/imports/{import_id}/discard")

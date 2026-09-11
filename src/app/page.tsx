@@ -86,10 +86,11 @@ export default function ImportWorkspace() {
 
   function selectWorkbookSheet(sheetName: string) {
     setSelectedSheet(sheetName);
-    void profileUploadedFile(undefined, sheetName);
+    if (sourceFile) void profileUploadedFile(undefined, sheetName);
+    else void profileSourceUrl(sourceProfile?.source_url ?? sourceUrl, sheetName);
   }
 
-  async function profileSourceUrl(submittedUrl = sourceUrl) {
+  async function profileSourceUrl(submittedUrl = sourceUrl, sheetName = selectedSheet) {
     if (!submittedUrl) {
       setAnalysisMessage("Cole um link HTTPS para iniciar a análise.");
       return;
@@ -97,7 +98,7 @@ export default function ImportWorkspace() {
     setIsAnalyzing(true);
     setAnalysisMessage("");
     try {
-      const profileResponse = await fetch("/api/link-preview", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source_url: submittedUrl }) });
+      const profileResponse = await fetch("/api/link-preview", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source_url: submittedUrl, sheet_name: sheetName }) });
       const profilePayload = await profileResponse.json();
       if (!profileResponse.ok) setAnalysisMessage(profilePayload.detail ?? profilePayload.message ?? "Não foi possível analisar o link.");
       else applyProfile(profilePayload);
@@ -124,8 +125,8 @@ export default function ImportWorkspace() {
     setAnalysisMessage("");
     try {
       const response = sourceFile
-        ? await fetch("/api/import-draft", { method: "POST", body: (() => { const draftForm = new FormData(); draftForm.append("sourceFile", sourceFile); draftForm.append("title", sourceProfile.file_name); return draftForm; })() })
-        : await fetch("/api/import-draft-link", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source_url: sourceProfile.source_url, title: sourceProfile.file_name }) });
+        ? await fetch("/api/import-draft", { method: "POST", body: (() => { const draftForm = new FormData(); draftForm.append("sourceFile", sourceFile); draftForm.append("title", sourceProfile.file_name); if (selectedSheet) draftForm.append("sheetName", selectedSheet); return draftForm; })() })
+        : await fetch("/api/import-draft-link", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source_url: sourceProfile.source_url, title: sourceProfile.file_name, sheet_name: selectedSheet }) });
       const payload = await response.json();
       if (!response.ok) setAnalysisMessage(payload.detail ?? payload.message ?? "Não foi possível criar o rascunho.");
       else setDraftImportId(payload.import_id);
@@ -140,7 +141,7 @@ export default function ImportWorkspace() {
       const response = await fetch(`/api/imports/${draftImportId}/discard`, { method: "POST" });
       if (response.ok) setDraftImportId(null);
     } catch {
-      /* keep the draft reference on failure so the user can retry */
+      setAnalysisMessage("Não foi possível descartar o rascunho no momento.");
     } finally {
       setIsDiscarding(false);
     }
