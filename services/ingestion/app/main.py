@@ -34,6 +34,15 @@ supported_extensions = {".csv", ".xlsx", ".xls", ".json"}
 archive_extensions = {".zip", ".gz"}
 acceptable_extensions = supported_extensions | archive_extensions
 maximum_redirect_hops = 5
+iiu_demonstration_values = {
+    "cobertura_do_transporte_publico": (65.0, "% população"), "tempo_medio_de_deslocamento": (42.0, "min/dia"),
+    "emissao_de_co2_per_capita": (3.2, "tCO₂/hab./ano"), "indice_de_perdas_hidricas": (32.0, "% do volume"), "participacao_de_energias_renovaveis": (47.0, "% da matriz local"),
+    "cobertura_da_atencao_basica_esf": (77.0, "% da população"), "cobertura_vacinal": (91.0, "% do público-alvo"), "taxa_de_mortalidade_infantil": (10.0, "por 1.000 NV"),
+    "taxa_de_homicidios": (13.0, "por 100k hab."), "taxa_de_roubos_e_furtos": (800.0, "por 100k hab."),
+    "cumprimento_da_lai": (8.0, "pontuação 0–10"), "digitalizacao_dos_servicos_publicos": (60.0, "% serviços online"),
+    "cobertura_de_banda_larga": (75.0, "% domicílios"), "pib_per_capita_municipal": (48500.0, "R$/hab./ano"), "taxa_de_formalizacao_do_emprego": (64.0, "% trabalhadores formais"),
+    "cobertura_de_agua_tratada": (91.0, "% da população"), "cobertura_de_esgoto_sanitario": (75.0, "% da população"), "deficit_habitacional": (6.0, "% dos domicílios"), "populacao_em_area_de_risco": (2.5, "% da população"),
+}
 
 
 class LinkRequest(BaseModel):
@@ -712,7 +721,8 @@ def iiu_score(value: float, direction: str, minimum_value: float | None, maximum
 
 @app.get("/iiu-dashboard/{municipality_code}")
 def get_iiu_dashboard(municipality_code: str, city_profile: str = "medio") -> dict[str, Any]:
-    if not re.fullmatch(r"[0-9]{7}", municipality_code):
+    is_demonstration = municipality_code == "demo"
+    if not is_demonstration and not re.fullmatch(r"[0-9]{7}", municipality_code):
         raise HTTPException(422, "Informe um código IBGE de município com sete dígitos.")
     if city_profile not in {"pequeno", "medio", "grande", "metropole"}:
         raise HTTPException(422, "Escolha um porte de município válido para o cálculo do IIU.")
@@ -725,6 +735,8 @@ def get_iiu_dashboard(municipality_code: str, city_profile: str = "medio") -> di
     latest_values: dict[str, dict[str, Any]] = {}
     for published_value in values_response.json():
         latest_values.setdefault(published_value["indicator_code"], published_value)
+    if is_demonstration:
+        latest_values = {code: {"indicator_code": code, "value": value, "reference_period": "2025-01-01", "unit": unit, "source_name": "Demonstração DECSYS", "import_title": "Valores sintéticos - não oficiais"} for code, (value, unit) in iiu_demonstration_values.items()}
     benchmark_by_indicator = {benchmark["indicator_code"]: benchmark for benchmark in benchmark_response.json()}
     indicators_by_dimension: dict[str, list[dict[str, Any]]] = {}
     for indicator in catalog_response.json():
@@ -743,8 +755,8 @@ def get_iiu_dashboard(municipality_code: str, city_profile: str = "medio") -> di
             weighted_scores.append((dimension_score, float(dimension["weight"])))
         dimensions.append({"code": dimension["code"], "name": dimension["name"], "color": dimension["color"], "weight": float(dimension["weight"]), "score": dimension_score, "indicators": dimension_indicators, "scored_indicators": len(valid_scores), "observed_indicators": sum(1 for indicator in dimension_indicators if indicator["raw_value"] is not None), "total_indicators": len(dimension_indicators)})
     overall_score = sum(score * weight for score, weight in weighted_scores) / sum(weight for _, weight in weighted_scores) if weighted_scores else None
-    maturity = next((level for level in ((20, "Nível 1 — Inicial"), (40, "Nível 2 — Em desenvolvimento"), (60, "Nível 3 — Estruturado"), (80, "Nível 4 — Gerenciado"), (100, "Nível 5 — Otimizado")) if overall_score is not None and overall_score <= level[0]), None)
-    return {"municipality_ibge_code": municipality_code, "city_profile": city_profile, "overall_score": overall_score, "maturity": maturity[1] if maturity else None, "observed_indicators": len(latest_values), "scored_indicators": sum(dimension["scored_indicators"] for dimension in dimensions), "total_indicators": sum(dimension["total_indicators"] for dimension in dimensions), "dimensions": dimensions}
+    maturity = next((level for level in ((20, "Nível 1 - Inicial"), (40, "Nível 2 - Em desenvolvimento"), (60, "Nível 3 - Estruturado"), (80, "Nível 4 - Gerenciado"), (100, "Nível 5 - Otimizado")) if overall_score is not None and overall_score <= level[0]), None)
+    return {"municipality_ibge_code": municipality_code, "city_profile": city_profile, "is_demonstration": is_demonstration, "overall_score": overall_score, "maturity": maturity[1] if maturity else None, "observed_indicators": len(latest_values), "scored_indicators": sum(dimension["scored_indicators"] for dimension in dimensions), "total_indicators": sum(dimension["total_indicators"] for dimension in dimensions), "dimensions": dimensions}
 
 
 @app.post("/indicators")
