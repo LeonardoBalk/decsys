@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { ArrowLeft, ChartNoAxesCombined, Database, FileUp, Link2, ListTree } from "lucide-react";
+import { ArrowLeft, ChartNoAxesCombined, Database, FileUp, ListTree } from "lucide-react";
 import styles from "../../page.module.css";
 
 type IndicatorRegistration = {
@@ -44,7 +44,7 @@ export default function NewIndicatorPage() {
   }
 
   return <div className={styles.applicationShell}>
-    <aside className={styles.sidebar}><div className={styles.sidebarTop}><p className={styles.productName}>DECSYS</p><nav aria-label="Navegação principal"><a href="/"><FileUp size={20} strokeWidth={1.5} />Importações</a><a href="/dados-revisados"><Database size={20} strokeWidth={1.5} />Dados revisados</a><a className={styles.activeNav} href="/indicadores"><ListTree size={20} strokeWidth={1.5} />Indicadores</a><a href="/iiu"><ChartNoAxesCombined size={20} strokeWidth={1.5} />Índice IIU</a><a href="/#fontes"><Link2 size={20} strokeWidth={1.5} />Fontes</a></nav></div></aside>
+    <aside className={styles.sidebar}><div className={styles.sidebarTop}><p className={styles.productName}>DECSYS</p><nav aria-label="Navegação principal"><a href="/"><FileUp size={20} strokeWidth={1.5} />Importações</a><a href="/dados-revisados"><Database size={20} strokeWidth={1.5} />Dados revisados</a><a className={styles.activeNav} href="/indicadores"><ListTree size={20} strokeWidth={1.5} />Indicadores</a><a href="/iiu"><ChartNoAxesCombined size={20} strokeWidth={1.5} />Índice IIU</a></nav></div></aside>
     <main className={styles.workspaceShell}>
       <a className={styles.backLink} href="/indicadores"><ArrowLeft size={16} />Voltar aos indicadores</a>
       <section className={styles.workspaceIntro}><p className={styles.eyebrow}>CATÁLOGO</p><h1>Novo indicador</h1><p>Defina o conceito que será associado aos dados importados e usado depois nos painéis.</p></section>

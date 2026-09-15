@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { ChartNoAxesCombined, Database, FileUp, Link2, ListTree, Search } from "lucide-react";
+import { ChartNoAxesCombined, Database, FileUp, ListTree, Search } from "lucide-react";
 import styles from "../page.module.css";
 
 type Municipality = { ibge_code: string; name: string; state: string };
@@ -87,7 +87,7 @@ export default function IiuDashboardPage() {
   const weakestDimension = orderedDimensions.at(-1);
 
   return <div className={styles.applicationShell}>
-    <aside className={styles.sidebar}><div className={styles.sidebarTop}><p className={styles.productName}>DECSYS</p><nav aria-label="Navegação principal"><a href="/"><FileUp size={20} strokeWidth={1.5} />Importações</a><a href="/dados-revisados"><Database size={20} strokeWidth={1.5} />Dados revisados</a><a href="/indicadores"><ListTree size={20} strokeWidth={1.5} />Indicadores</a><a className={styles.activeNav} href="/iiu"><ChartNoAxesCombined size={20} strokeWidth={1.5} />Índice IIU</a><a href="/#fontes"><Link2 size={20} strokeWidth={1.5} />Fontes</a></nav></div></aside>
+    <aside className={styles.sidebar}><div className={styles.sidebarTop}><p className={styles.productName}>DECSYS</p><nav aria-label="Navegação principal"><a href="/"><FileUp size={20} strokeWidth={1.5} />Importações</a><a href="/dados-revisados"><Database size={20} strokeWidth={1.5} />Dados revisados</a><a href="/indicadores"><ListTree size={20} strokeWidth={1.5} />Indicadores</a><a className={styles.activeNav} href="/iiu"><ChartNoAxesCombined size={20} strokeWidth={1.5} />Índice IIU</a></nav></div></aside>
     <main className={styles.workspaceShell}>
       <section className={styles.workspaceIntro}><p className={styles.eyebrow}>ÍNDICE DE INTELIGÊNCIA URBANA</p><h1>Diagnóstico IIU</h1><p>Uma leitura executiva do desempenho municipal, das lacunas de dados e dos indicadores que precisam de atenção.</p></section>
       <section className={styles.analysisPanel}><div className={styles.sectionHeading}><div><h2>Escolher município</h2><span>O porte define os pesos usados entre as sete dimensões.</span></div></div><form className={styles.sourceForm} onSubmit={loadDashboard}><label>Código IBGE ou nome do município<input onChange={(event) => setMunicipalityQuery(event.target.value)} placeholder="Ex.: 4314902 ou Porto Alegre" value={municipalityQuery} /></label><label>Porte do município<select onChange={(event) => setCityProfile(event.target.value)} value={cityProfile}><option value="pequeno">Pequeno - até 50 mil habitantes</option><option value="medio">Médio - 50 a 300 mil habitantes</option><option value="grande">Grande - 300 mil a 1 milhão</option><option value="metropole">Metrópole - acima de 1 milhão</option></select></label><div className={styles.stepActions}><button onClick={() => void searchMunicipalities()} type="button"><Search size={16} />Pesquisar município</button><button onClick={() => void loadDashboard(undefined, "demo")} type="button">Ver demonstração</button><button className={styles.primaryButton} disabled={isLoading} type="submit">{isLoading ? "Calculando..." : "Calcular IIU"}</button></div></form>{municipalities.length ? <div className={styles.municipalityResults}>{municipalities.map((municipality) => <button key={municipality.ibge_code} onClick={() => selectMunicipality(municipality)} type="button">{municipality.name} - {municipality.state}<span>{municipality.ibge_code}</span></button>)}</div> : null}</section>
