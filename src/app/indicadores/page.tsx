@@ -1,7 +1,7 @@
 "use client";
 
 import { FormEvent, useEffect, useState } from "react";
-import { Database, FileUp, Link2, ListTree } from "lucide-react";
+import { ChartNoAxesCombined, Database, FileUp, Link2, ListTree } from "lucide-react";
 import styles from "../page.module.css";
 import { Indicator } from "@/lib/types/importacao";
 
@@ -71,6 +71,7 @@ export default function IndicatorsPage() {
           <a href="/"><FileUp size={20} strokeWidth={1.5} />Importações</a>
           <a href="/dados-revisados"><Database size={20} strokeWidth={1.5} />Dados revisados</a>
           <a className={styles.activeNav} href="/indicadores"><ListTree size={20} strokeWidth={1.5} />Indicadores</a>
+          <a href="/iiu"><ChartNoAxesCombined size={20} strokeWidth={1.5} />Índice IIU</a>
           <a href="/#fontes"><Link2 size={20} strokeWidth={1.5} />Fontes</a>
         </nav>
       </div>

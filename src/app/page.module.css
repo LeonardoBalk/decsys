@@ -96,6 +96,25 @@
 .indicatorRecommendation { display: flex; justify-content: space-between; align-items: center; gap: var(--space-4); padding: var(--space-4); border: 1px solid var(--color-border-muted); border-radius: var(--radius-md); background: var(--color-surface-200); }
 .indicatorRecommendation strong { color: var(--color-text); font-size: var(--text-sm); font-weight: 590; }
 .indicatorRecommendation p { margin: 4px 0 0; color: var(--color-text-lighter); font-size: var(--text-caption); }
+.municipalityResults { display: grid; gap: var(--space-2); margin-top: var(--space-4); }
+.workspaceShell .municipalityResults button { display: flex; justify-content: space-between; align-items: center; text-align: left; }
+.municipalityResults span { color: var(--color-text-muted); font-family: var(--font-mono); font-size: var(--text-caption); }
+.iiuOverview { display: flex; justify-content: space-between; align-items: stretch; gap: var(--space-6); margin: var(--space-6) 0; padding: var(--space-6); border: 1px solid var(--color-border-muted); border-radius: var(--radius-lg); background: var(--color-surface-100); }
+.iiuOverview > div { display: grid; align-content: start; gap: var(--space-2); }
+.iiuOverview > div strong { color: var(--color-text); font-size: clamp(48px, 8vw, 76px); font-weight: 540; letter-spacing: -.06em; line-height: .9; }
+.iiuOverview > div span { color: var(--color-text-lighter); font-size: var(--text-sm); }
+.iiuOverview dl { display: grid; grid-template-columns: repeat(3, minmax(104px, 1fr)); gap: 1px; margin: 0; overflow: hidden; border: 1px solid var(--color-border-muted); border-radius: var(--radius-md); background: var(--color-border-muted); }
+.iiuOverview dl div { display: grid; align-content: center; padding: var(--space-3); background: var(--color-surface-200); }
+.iiuOverview dt { color: var(--color-text-muted); font-size: var(--text-caption); }
+.iiuOverview dd { margin: 5px 0 0; color: var(--color-text); font-family: var(--font-mono); font-size: var(--text-sm); font-weight: 600; }
+.iiuDimensions { display: grid; gap: var(--space-4); }
+.iiuDimension { padding: var(--space-5); border: 1px solid var(--color-border-muted); border-radius: var(--radius-lg); background: var(--color-surface-100); }
+.iiuDimensionHeading { display: flex; justify-content: space-between; align-items: center; gap: var(--space-4); }
+.iiuDimensionHeading > div { display: flex; align-items: center; gap: var(--space-3); }
+.iiuDimensionHeading span { width: 10px; height: 10px; border-radius: var(--radius-full); }
+.iiuDimensionHeading h2 { margin: 0; }
+.iiuDimensionHeading > strong { color: var(--color-text); font-family: var(--font-mono); font-size: var(--text-heading-sm); }
+.iiuDimension > p { margin: 6px 0 var(--space-4); color: var(--color-text-lighter); font-size: var(--text-caption); }
 .tableWorkspace { min-width: 0; padding: var(--space-6); border: 1px solid var(--color-border-muted); border-radius: var(--radius-lg); background: var(--color-surface-100); }
 .tableHeading { display: flex; justify-content: space-between; align-items: flex-end; gap: var(--space-6); margin-bottom: var(--space-4); }
 .tableHeading h2 { margin-bottom: 0; }
@@ -136,12 +155,15 @@
   .workspaceIntro { padding-top: 38px; }
   .exportPanel { flex-direction: column; align-items: flex-start; }
   .indicatorRecommendation { flex-direction: column; align-items: flex-start; }
+  .iiuOverview { flex-direction: column; }
   .stepperLabel p { display: none; }
 }
 
 @media (max-width: 480px) {
   .workspaceIntro h1 { font-size: 30px; }
   .sourceCard, .analysisPanel, .tableWorkspace, .downloadCandidates, .exportPanel { padding: 17px; }
+  .iiuOverview, .iiuDimension { padding: 17px; }
+  .iiuOverview dl { grid-template-columns: 1fr; }
   .exportActions { width: 100%; }
   .exportActions button { flex: 1; }
   .sheetSelector { width: 100%; }

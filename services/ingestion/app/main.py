@@ -687,6 +687,66 @@ def list_dashboard_values(indicator_code: str | None = None, dataset_id: str | N
     return values_response.json()
 
 
+@app.get("/iiu-municipalities")
+def search_iiu_municipalities(search: str = "") -> list[dict[str, Any]]:
+    query_parameters = {"select": "ibge_code,name,state", "order": "name", "limit": "20"}
+    if search.strip():
+        query_parameters["or"] = f"(ibge_code.ilike.*{search.strip()}*,name.ilike.*{search.strip()}*)"
+    municipalities_response = httpx.get(supabase_url("/rest/v1/iiu_municipalities"), params=query_parameters, headers=supabase_headers(), timeout=30.0)
+    if not municipalities_response.is_success:
+        raise HTTPException(502, "Não foi possível carregar os municípios do IIU.")
+    return municipalities_response.json()
+
+
+def iiu_score(value: float, direction: str, minimum_value: float | None, maximum_value: float | None, checklist_max: float | None) -> float | None:
+    if direction == "checklist" and checklist_max:
+        return min(100.0, max(0.0, value / checklist_max * 100))
+    if minimum_value is None or maximum_value is None or minimum_value >= maximum_value:
+        return None
+    if direction == "direct":
+        return min(100.0, max(0.0, (value - minimum_value) / (maximum_value - minimum_value) * 100))
+    if direction == "inverse":
+        return min(100.0, max(0.0, (maximum_value - value) / (maximum_value - minimum_value) * 100))
+    return None
+
+
+@app.get("/iiu-dashboard/{municipality_code}")
+def get_iiu_dashboard(municipality_code: str, city_profile: str = "medio") -> dict[str, Any]:
+    if not re.fullmatch(r"[0-9]{7}", municipality_code):
+        raise HTTPException(422, "Informe um código IBGE de município com sete dígitos.")
+    if city_profile not in {"pequeno", "medio", "grande", "metropole"}:
+        raise HTTPException(422, "Escolha um porte de município válido para o cálculo do IIU.")
+    catalog_response = httpx.get(supabase_url("/rest/v1/iiu_indicator_catalog"), params={"select": "*", "order": "display_order,name"}, headers=supabase_headers(), timeout=30.0)
+    dimension_response = httpx.get(supabase_url("/rest/v1/iiu_dimension_catalog"), params={"city_profile": f"eq.{city_profile}", "select": "*", "order": "display_order"}, headers=supabase_headers(), timeout=30.0)
+    benchmark_response = httpx.get(supabase_url("/rest/v1/iiu_indicator_benchmark_catalog"), params={"city_profile": f"eq.{city_profile}", "select": "*"}, headers=supabase_headers(), timeout=30.0)
+    values_response = httpx.get(supabase_url("/rest/v1/dashboard_values"), params={"dimensions->>municipality_ibge_code": f"eq.{municipality_code}", "select": "indicator_code,value,reference_period,unit,source_name,import_title", "order": "reference_period.desc", "limit": "1000"}, headers=supabase_headers(), timeout=30.0)
+    if not all(response.is_success for response in (catalog_response, dimension_response, benchmark_response, values_response)):
+        raise HTTPException(502, "Não foi possível montar o IIU. Confirme se a migration 0012_iiu_framework.sql foi executada no Supabase.")
+    latest_values: dict[str, dict[str, Any]] = {}
+    for published_value in values_response.json():
+        latest_values.setdefault(published_value["indicator_code"], published_value)
+    benchmark_by_indicator = {benchmark["indicator_code"]: benchmark for benchmark in benchmark_response.json()}
+    indicators_by_dimension: dict[str, list[dict[str, Any]]] = {}
+    for indicator in catalog_response.json():
+        published_value = latest_values.get(indicator["code"])
+        benchmark = benchmark_by_indicator.get(indicator["code"])
+        raw_value = float(published_value["value"]) if published_value and published_value["value"] is not None else None
+        score = iiu_score(raw_value, indicator["score_direction"], float(benchmark["minimum_value"]) if benchmark else None, float(benchmark["maximum_value"]) if benchmark else None, float(indicator["checklist_max"]) if indicator["checklist_max"] is not None else None) if raw_value is not None else None
+        indicators_by_dimension.setdefault(indicator["iiu_dimension_code"], []).append({"code": indicator["code"], "name": indicator["name"], "type": indicator["iiu_type"], "unit": indicator["unit"], "formula": indicator["formula"], "source": indicator["source_description"], "direction": indicator["score_direction"], "raw_value": raw_value, "reference_period": published_value["reference_period"] if published_value else None, "score": score, "benchmark": {"minimum": float(benchmark["minimum_value"]), "maximum": float(benchmark["maximum_value"])} if benchmark else None})
+    dimensions = []
+    weighted_scores: list[tuple[float, float]] = []
+    for dimension in dimension_response.json():
+        dimension_indicators = indicators_by_dimension.get(dimension["code"], [])
+        valid_scores = [indicator["score"] for indicator in dimension_indicators if indicator["score"] is not None]
+        dimension_score = sum(valid_scores) / len(valid_scores) if valid_scores else None
+        if dimension_score is not None:
+            weighted_scores.append((dimension_score, float(dimension["weight"])))
+        dimensions.append({"code": dimension["code"], "name": dimension["name"], "color": dimension["color"], "weight": float(dimension["weight"]), "score": dimension_score, "indicators": dimension_indicators, "scored_indicators": len(valid_scores), "observed_indicators": sum(1 for indicator in dimension_indicators if indicator["raw_value"] is not None), "total_indicators": len(dimension_indicators)})
+    overall_score = sum(score * weight for score, weight in weighted_scores) / sum(weight for _, weight in weighted_scores) if weighted_scores else None
+    maturity = next((level for level in ((20, "Nível 1 — Inicial"), (40, "Nível 2 — Em desenvolvimento"), (60, "Nível 3 — Estruturado"), (80, "Nível 4 — Gerenciado"), (100, "Nível 5 — Otimizado")) if overall_score is not None and overall_score <= level[0]), None)
+    return {"municipality_ibge_code": municipality_code, "city_profile": city_profile, "overall_score": overall_score, "maturity": maturity[1] if maturity else None, "observed_indicators": len(latest_values), "scored_indicators": sum(dimension["scored_indicators"] for dimension in dimensions), "total_indicators": sum(dimension["total_indicators"] for dimension in dimensions), "dimensions": dimensions}
+
+
 @app.post("/indicators")
 def create_indicator(indicator: IndicatorRegistration) -> dict[str, Any]:
     indicator_code = normalize_column(indicator.code)

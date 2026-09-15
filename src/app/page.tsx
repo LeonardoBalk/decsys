@@ -1,7 +1,7 @@
 "use client";
 
 import { ChangeEvent, FormEvent, useState } from "react";
-import { FileUp, Database, Link2, ListTree } from "lucide-react";
+import { ChartNoAxesCombined, FileUp, Database, Link2, ListTree } from "lucide-react";
 import styles from "./page.module.css";
 import { Stepper, ImportStep } from "./_components/importacoes/stepper";
 import { EtapaOrigem } from "./_components/importacoes/etapa-origem";
@@ -163,6 +163,7 @@ export default function ImportWorkspace() {
           <a className={styles.activeNav} href="/"><FileUp size={20} strokeWidth={1.5} />Importações</a>
           <a href="/dados-revisados"><Database size={20} strokeWidth={1.5} />Dados revisados</a>
           <a href="/indicadores"><ListTree size={20} strokeWidth={1.5} />Indicadores</a>
+          <a href="/iiu"><ChartNoAxesCombined size={20} strokeWidth={1.5} />Índice IIU</a>
           <a href="#fontes"><Link2 size={20} strokeWidth={1.5} />Fontes</a>
         </nav>
       </div>
