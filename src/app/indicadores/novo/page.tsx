@@ -3,6 +3,7 @@
 import { FormEvent, useState } from "react";
 import { ArrowLeft, ChartNoAxesCombined, Database, FileUp, ListTree } from "lucide-react";
 import styles from "../../page.module.css";
+import { StatusNotice } from "../../_components/status-notice";
 
 type IndicatorRegistration = {
   code: string;
@@ -19,6 +20,7 @@ export default function NewIndicatorPage() {
   const [registration, setRegistration] = useState<IndicatorRegistration>(emptyRegistration);
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState("");
+  const [messageKind, setMessageKind] = useState<"error" | "success">("error");
 
   function updateRegistration(fieldName: keyof IndicatorRegistration, fieldValue: string) {
     setRegistration((currentRegistration) => ({ ...currentRegistration, [fieldName]: fieldValue }));
@@ -31,12 +33,17 @@ export default function NewIndicatorPage() {
     try {
       const response = await fetch("/api/indicators", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(registration) });
       const payload = await response.json();
-      if (!response.ok) setMessage(payload.detail ?? payload.message ?? "Não foi possível cadastrar o indicador.");
+      if (!response.ok) {
+        setMessageKind("error");
+        setMessage(payload.detail ?? payload.message ?? "Não foi possível cadastrar o indicador.");
+      }
       else {
         setRegistration(emptyRegistration);
+        setMessageKind("success");
         setMessage("Indicador cadastrado. Ele já está disponível nas próximas importações.");
       }
     } catch {
+      setMessageKind("error");
       setMessage("Não foi possível acessar o serviço de tratamento.");
     } finally {
       setIsSaving(false);
@@ -57,7 +64,7 @@ export default function NewIndicatorPage() {
           <label>Definição<input onChange={(event) => updateRegistration("definition", event.target.value)} placeholder="Explique com clareza o que o valor representa." required value={registration.definition} /></label>
           <label>Unidade<input onChange={(event) => updateRegistration("unit", event.target.value)} placeholder="Ex.: pessoas, %, kW" required value={registration.unit} /></label>
           <label>Periodicidade<input onChange={(event) => updateRegistration("expected_frequency", event.target.value)} placeholder="Ex.: mensal ou anual" value={registration.expected_frequency} /></label>
-          {message ? <p className={message.startsWith("Indicador cadastrado") ? styles.profileGuidance : styles.feedbackMessage}>{message}</p> : null}
+          {message ? <StatusNotice variant={messageKind}>{message}</StatusNotice> : null}
           <div className={styles.formActions}><a href="/indicadores">Cancelar</a><button className={styles.primaryButton} disabled={isSaving} type="submit">{isSaving ? "Cadastrando..." : "Cadastrar indicador"}</button></div>
         </form>
       </section>

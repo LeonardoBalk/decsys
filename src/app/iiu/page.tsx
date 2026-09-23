@@ -3,6 +3,7 @@
 import { FormEvent, useState } from "react";
 import { ChartNoAxesCombined, Database, FileUp, ListTree, Search } from "lucide-react";
 import styles from "../page.module.css";
+import { StatusNotice } from "../_components/status-notice";
 
 type Municipality = { ibge_code: string; name: string; state: string };
 type IiuIndicator = { code: string; name: string; unit: string; source: string; raw_value: number | null; reference_period: string | null; score: number | null; benchmark: { minimum: number; maximum: number } | null };
@@ -37,17 +38,32 @@ export default function IiuDashboardPage() {
   const [dashboard, setDashboard] = useState<IiuDashboard | null>(null);
   const [selectedDimensionCode, setSelectedDimensionCode] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [isSearchingMunicipalities, setIsSearchingMunicipalities] = useState(false);
+  const [hasSearchedMunicipalities, setHasSearchedMunicipalities] = useState(false);
   const [message, setMessage] = useState("");
 
   async function searchMunicipalities() {
     setMessage("");
+    setMunicipalities([]);
+    setHasSearchedMunicipalities(false);
+    if (!municipalityQuery.trim()) {
+      setMessage("Digite o nome ou o código IBGE do município para pesquisar.");
+      return;
+    }
+    setIsSearchingMunicipalities(true);
     try {
       const response = await fetch(`/api/iiu-municipalities?search=${encodeURIComponent(municipalityQuery)}`);
       const payload = await response.json();
       if (!response.ok) setMessage(payload.detail ?? payload.message ?? "Não foi possível pesquisar municípios.");
-      else setMunicipalities(payload);
+      else if (!Array.isArray(payload)) setMessage("A pesquisa retornou uma resposta inesperada. Tente novamente.");
+      else {
+        setMunicipalities(payload);
+        setHasSearchedMunicipalities(true);
+      }
     } catch {
       setMessage("Não foi possível acessar o serviço de tratamento.");
+    } finally {
+      setIsSearchingMunicipalities(false);
     }
   }
 
@@ -77,6 +93,7 @@ export default function IiuDashboardPage() {
   function selectMunicipality(municipality: Municipality) {
     setMunicipalityQuery(municipality.ibge_code);
     setMunicipalities([]);
+    setHasSearchedMunicipalities(false);
     void loadDashboard(undefined, municipality.ibge_code);
   }
 
@@ -90,10 +107,11 @@ export default function IiuDashboardPage() {
     <aside className={styles.sidebar}><div className={styles.sidebarTop}><p className={styles.productName}>DECSYS</p><nav aria-label="Navegação principal"><a href="/"><FileUp size={20} strokeWidth={1.5} />Importações</a><a href="/dados-revisados"><Database size={20} strokeWidth={1.5} />Dados revisados</a><a href="/indicadores"><ListTree size={20} strokeWidth={1.5} />Indicadores</a><a className={styles.activeNav} href="/iiu"><ChartNoAxesCombined size={20} strokeWidth={1.5} />Índice IIU</a></nav></div></aside>
     <main className={styles.workspaceShell}>
       <section className={styles.workspaceIntro}><p className={styles.eyebrow}>ÍNDICE DE INTELIGÊNCIA URBANA</p><h1>Diagnóstico IIU</h1><p>Uma leitura executiva do desempenho municipal, das lacunas de dados e dos indicadores que precisam de atenção.</p></section>
-      <section className={styles.analysisPanel}><div className={styles.sectionHeading}><div><h2>Escolher município</h2><span>O porte define os pesos usados entre as sete dimensões.</span></div></div><form className={styles.sourceForm} onSubmit={loadDashboard}><label>Código IBGE ou nome do município<input onChange={(event) => setMunicipalityQuery(event.target.value)} placeholder="Ex.: 4314902 ou Porto Alegre" value={municipalityQuery} /></label><label>Porte do município<select onChange={(event) => setCityProfile(event.target.value)} value={cityProfile}><option value="pequeno">Pequeno - até 50 mil habitantes</option><option value="medio">Médio - 50 a 300 mil habitantes</option><option value="grande">Grande - 300 mil a 1 milhão</option><option value="metropole">Metrópole - acima de 1 milhão</option></select></label><div className={styles.stepActions}><button onClick={() => void searchMunicipalities()} type="button"><Search size={16} />Pesquisar município</button><button onClick={() => void loadDashboard(undefined, "demo")} type="button">Ver demonstração</button><button className={styles.primaryButton} disabled={isLoading} type="submit">{isLoading ? "Calculando..." : "Calcular IIU"}</button></div></form>{municipalities.length ? <div className={styles.municipalityResults}>{municipalities.map((municipality) => <button key={municipality.ibge_code} onClick={() => selectMunicipality(municipality)} type="button">{municipality.name} - {municipality.state}<span>{municipality.ibge_code}</span></button>)}</div> : null}</section>
-      {message ? <p className={styles.feedbackMessage}>{message}</p> : null}
+      <section className={styles.analysisPanel}><div className={styles.sectionHeading}><div><h2>Escolher município</h2><span>O porte define os pesos usados entre as sete dimensões.</span></div></div><form className={styles.sourceForm} onSubmit={loadDashboard}><label>Código IBGE ou nome do município<input onChange={(event) => { setMunicipalityQuery(event.target.value); setMunicipalities([]); setHasSearchedMunicipalities(false); }} placeholder="Ex.: 4314902 ou Porto Alegre" value={municipalityQuery} /></label><label>Porte do município<select onChange={(event) => setCityProfile(event.target.value)} value={cityProfile}><option value="pequeno">Pequeno - até 50 mil habitantes</option><option value="medio">Médio - 50 a 300 mil habitantes</option><option value="grande">Grande - 300 mil a 1 milhão</option><option value="metropole">Metrópole - acima de 1 milhão</option></select></label><div className={styles.stepActions}><button disabled={isSearchingMunicipalities || isLoading} onClick={() => void searchMunicipalities()} type="button"><Search size={16} />{isSearchingMunicipalities ? "Pesquisando..." : "Pesquisar município"}</button><button disabled={isLoading} onClick={() => void loadDashboard(undefined, "demo")} type="button">Ver demonstração</button><button className={styles.primaryButton} disabled={isLoading || isSearchingMunicipalities} type="submit">{isLoading ? "Calculando..." : "Calcular IIU"}</button></div></form>{isSearchingMunicipalities ? <StatusNotice variant="loading">Pesquisando municípios pelo nome ou código.</StatusNotice> : null}{municipalities.length ? <div className={styles.municipalityResults}>{municipalities.map((municipality) => <button key={municipality.ibge_code} onClick={() => selectMunicipality(municipality)} type="button">{municipality.name} - {municipality.state}<span>{municipality.ibge_code}</span></button>)}</div> : null}{hasSearchedMunicipalities && !isSearchingMunicipalities && !municipalities.length && !message ? <StatusNotice variant="info">Nenhum município encontrado. Confira a grafia ou tente o código IBGE.</StatusNotice> : null}</section>
+      {isLoading ? <StatusNotice variant="loading">Calculando o diagnóstico do município. Isso pode levar alguns instantes.</StatusNotice> : null}
+      {message ? <StatusNotice variant="error">{message}</StatusNotice> : null}
       {dashboard ? <>
-        {dashboard.is_demonstration ? <p className={styles.iiuDemoNotice}>Demonstração com valores sintéticos. Ela serve apenas para visualizar o IIU e não é gravada como dado oficial.</p> : null}
+        {dashboard.is_demonstration ? <StatusNotice variant="info" title="Modo de demonstração">Os valores são sintéticos e servem apenas para visualizar o IIU; não são gravados como dados oficiais.</StatusNotice> : null}
         <section className={styles.iiuScoreboard}><div className={styles.iiuScoreSummary}><p className={styles.eyebrow}>{dashboard.is_demonstration ? "DEMONSTRAÇÃO" : `MUNICÍPIO ${dashboard.municipality_ibge_code}`}</p><div className={styles.scoreNumber}><strong>{formatNumber(dashboard.overall_score)}</strong><span>/100</span></div><p>{dashboard.maturity ?? "Ainda não há dados suficientes para calcular o índice."}</p></div><dl className={styles.iiuScoreFacts}><div><dt>Cobertura</dt><dd>{dashboard.observed_indicators}/{dashboard.total_indicators}</dd><span>indicadores recebidos</span></div><div><dt>Scores calculados</dt><dd>{dashboard.scored_indicators}</dd><span>com referência disponível</span></div><div><dt>Porte aplicado</dt><dd>{dashboard.city_profile}</dd><span>pesos do diagnóstico</span></div></dl></section>
         <section className={styles.iiuDashboardGrid}><article className={styles.iiuRadarPanel}><div className={styles.iiuPanelHeading}><div><p className={styles.eyebrow}>VISÃO GERAL</p><h2>Equilíbrio entre dimensões</h2></div><span>{dimensionsWithScore.length}/7 avaliadas</span></div><ScoreRadar dimensions={dashboard.dimensions} /></article><article className={styles.iiuBarsPanel}><div className={styles.iiuPanelHeading}><div><p className={styles.eyebrow}>SCORES POR DIMENSÃO</p><h2>Onde agir primeiro</h2></div></div><div className={styles.iiuScoreBars}>{dashboard.dimensions.map((dimension) => <button className={selectedDimension?.code === dimension.code ? styles.iiuScoreBarActive : styles.iiuScoreBar} key={dimension.code} onClick={() => setSelectedDimensionCode(dimension.code)} type="button"><span>{dimension.name}</span><span className={styles.iiuBarTrack}><i style={{ background: dimension.color, width: `${dimension.score ?? 0}%` }} /></span><strong style={{ color: dimension.color }}>{formatNumber(dimension.score)}</strong></button>)}</div></article></section>
         <section className={styles.iiuInsightGrid}><article><p className={styles.eyebrow}>PONTO FORTE</p><strong>{strongestDimension?.name ?? "Sem score disponível"}</strong><span>{strongestDimension ? `${formatNumber(strongestDimension.score)} pontos` : "Importe dados com referência para calcular."}</span></article><article><p className={styles.eyebrow}>PRIORIDADE</p><strong>{weakestDimension?.name ?? "Sem score disponível"}</strong><span>{weakestDimension ? `${formatNumber(weakestDimension.score)} pontos` : "Importe dados com referência para calcular."}</span></article><article><p className={styles.eyebrow}>LACUNA DE DADOS</p><strong>{dashboard.total_indicators - dashboard.observed_indicators} indicadores</strong><span>Ainda não possuem valor aprovado para este diagnóstico.</span></article></section>

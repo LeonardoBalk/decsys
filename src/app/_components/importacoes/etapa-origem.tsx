@@ -5,6 +5,7 @@ import { FileImportForm } from "./formulario-arquivo";
 import { LinkImportForm } from "./formulario-link";
 import { FoundFiles } from "./arquivos-encontrados";
 import { DownloadCandidate } from "@/lib/types/importacao";
+import { StatusNotice } from "../status-notice";
 
 type EtapaOrigemProps = {
   importMethod: "file" | "link";
@@ -18,6 +19,7 @@ type EtapaOrigemProps = {
   downloadCandidates: DownloadCandidate[];
   onSelectFoundFile: (sourceUrl: string) => void;
   analysisMessage: string;
+  analysisMessageKind: "error" | "success";
 };
 
 export function EtapaOrigem({
@@ -31,7 +33,8 @@ export function EtapaOrigem({
   onLinkSubmit,
   downloadCandidates,
   onSelectFoundFile,
-  analysisMessage
+  analysisMessage,
+  analysisMessageKind
 }: EtapaOrigemProps) {
   return <StepScreen eyebrow="ETAPA 1 DE 3" title="Origem" description="Como você quer fornecer a base?">
     <div className={styles.sourceCard}>
@@ -44,8 +47,8 @@ export function EtapaOrigem({
         : <LinkImportForm isAnalyzing={isAnalyzing} onSourceUrlChange={onSourceUrlChange} onSubmit={onLinkSubmit} sourceUrl={sourceUrl} />}
     </div>
     <section className={styles.processHint}><strong>O que acontece depois?</strong><p>O Decsys identifica colunas e possíveis problemas. Você confere uma prévia antes de salvar, exportar ou encaminhar qualquer dado.</p></section>
-    {isAnalyzing ? <p aria-live="polite" className={styles.loadingNotice}>Estamos lendo a estrutura da fonte. Isso pode levar alguns instantes em planilhas grandes.</p> : null}
-    {analysisMessage ? <p aria-live="assertive" className={styles.feedbackMessage}>{analysisMessage}</p> : null}
+    {isAnalyzing ? <StatusNotice variant="loading">Estamos lendo a estrutura da fonte. Planilhas grandes podem levar alguns instantes.</StatusNotice> : null}
+    {analysisMessage ? <StatusNotice variant={analysisMessageKind}>{analysisMessage}</StatusNotice> : null}
     <FoundFiles candidates={downloadCandidates} onSelect={onSelectFoundFile} />
   </StepScreen>;
 }

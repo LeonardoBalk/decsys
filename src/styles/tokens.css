@@ -28,6 +28,10 @@
   --color-warning: #f5a623;
   --color-success: #3ecf8e;
   --color-info: #02b8cc;
+  --color-destructive-surface: rgba(229, 72, 77, .1);
+  --color-warning-surface: rgba(245, 166, 35, .1);
+  --color-success-surface: rgba(62, 207, 142, .1);
+  --color-info-surface: rgba(2, 184, 204, .1);
 
   /* Tipografia */
   --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;

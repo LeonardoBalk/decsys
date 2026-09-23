@@ -8,6 +8,7 @@ import { EtapaOrigem } from "./_components/importacoes/etapa-origem";
 import { EtapaLeitura } from "./_components/importacoes/etapa-leitura";
 import { EtapaDestino } from "./_components/importacoes/etapa-destino";
 import { DownloadCandidate, SourceProfile } from "@/lib/types/importacao";
+import { importErrorMessage } from "@/lib/import-error-message";
 
 type LinkProfileResponse = SourceProfile | { kind: string; download_candidates?: DownloadCandidate[] };
 
@@ -26,6 +27,7 @@ export default function ImportWorkspace() {
   const [sourceProfile, setSourceProfile] = useState<SourceProfile | null>(null);
   const [downloadCandidates, setDownloadCandidates] = useState<DownloadCandidate[]>([]);
   const [analysisMessage, setAnalysisMessage] = useState("");
+  const [analysisMessageKind, setAnalysisMessageKind] = useState<"error" | "success">("error");
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [selectedSheet, setSelectedSheet] = useState<string | null>(null);
   const [draftImportId, setDraftImportId] = useState<string | null>(null);
@@ -47,16 +49,27 @@ export default function ImportWorkspace() {
 
   function selectSourceUrl(event: ChangeEvent<HTMLInputElement>) {
     setSourceUrl(event.target.value);
+    setSourceProfile(null);
+    setDownloadCandidates([]);
+    setAnalysisMessage("");
+    setSelectedSheet(null);
+    setDraftImportId(null);
   }
 
   function applyProfile(profilePayload: LinkProfileResponse) {
     if (profilePayload.kind === "web_page") {
-      setDownloadCandidates("download_candidates" in profilePayload ? profilePayload.download_candidates ?? [] : []);
+      const foundCandidates = "download_candidates" in profilePayload ? profilePayload.download_candidates ?? [] : [];
+      setDownloadCandidates(foundCandidates);
       setSourceProfile(null);
+      setAnalysisMessageKind(foundCandidates.length ? "success" : "error");
+      setAnalysisMessage(foundCandidates.length
+        ? `Encontramos ${foundCandidates.length.toLocaleString("pt-BR")} arquivo(s) nesta página. Escolha abaixo qual deseja analisar.`
+        : "Esta página não ofereceu um arquivo que o Decsys consiga ler diretamente. Procure o link de download dos dados, como CSV ou XLSX.");
       return;
     }
     if ("file_name" in profilePayload) {
       setSourceProfile(profilePayload);
+      setAnalysisMessage("");
       setDownloadCandidates([]);
       setSelectedSheet(profilePayload.selected_sheet ?? null);
       setCurrentStep(2);
@@ -67,6 +80,7 @@ export default function ImportWorkspace() {
   async function profileUploadedFile(event?: FormEvent<HTMLFormElement>, sheetName = selectedSheet) {
     event?.preventDefault();
     if (!sourceFile) {
+      setAnalysisMessageKind("error");
       setAnalysisMessage("Escolha um arquivo CSV, XLSX, XLS ou JSON para iniciar a análise.");
       return;
     }
@@ -77,24 +91,28 @@ export default function ImportWorkspace() {
     if (sheetName) submittedForm.append("sheetName", sheetName);
     try {
       const profileResponse = await fetch("/api/import-preview", { method: "POST", body: submittedForm });
-      const profilePayload = await profileResponse.json();
-      if (!profileResponse.ok) setAnalysisMessage(profilePayload.detail ?? profilePayload.message ?? "Não foi possível analisar o arquivo.");
-      else applyProfile(profilePayload);
+      if (!profileResponse.ok) {
+        setAnalysisMessageKind("error");
+        setAnalysisMessage(await importErrorMessage(profileResponse, "Não conseguimos ler este arquivo. Confira o formato e tente novamente."));
+      }
+      else applyProfile(await profileResponse.json());
     } catch {
-      setAnalysisMessage("Não foi possível acessar o serviço de tratamento. Confirme se ele está em execução.");
+      setAnalysisMessageKind("error");
+      setAnalysisMessage("Não conseguimos analisar o arquivo agora. Confira se o serviço de leitura está iniciado e tente novamente; o arquivo original continua no seu computador.");
+      setSelectedSheet(sourceProfile?.selected_sheet ?? null);
     } finally {
       setIsAnalyzing(false);
     }
   }
 
   function selectWorkbookSheet(sheetName: string) {
-    setSelectedSheet(sheetName);
     if (sourceFile) void profileUploadedFile(undefined, sheetName);
     else void profileSourceUrl(sourceProfile?.source_url ?? sourceUrl, sheetName);
   }
 
   async function profileSourceUrl(submittedUrl = sourceUrl, sheetName = selectedSheet) {
     if (!submittedUrl) {
+      setAnalysisMessageKind("error");
       setAnalysisMessage("Cole um link HTTPS para iniciar a análise.");
       return;
     }
@@ -102,11 +120,16 @@ export default function ImportWorkspace() {
     setAnalysisMessage("");
     try {
       const profileResponse = await fetch("/api/link-preview", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source_url: submittedUrl, sheet_name: sheetName }) });
-      const profilePayload = await profileResponse.json();
-      if (!profileResponse.ok) setAnalysisMessage(profilePayload.detail ?? profilePayload.message ?? "Não foi possível analisar o link.");
-      else applyProfile(profilePayload);
+      if (!profileResponse.ok) {
+        setAnalysisMessageKind("error");
+        setAnalysisMessage(await importErrorMessage(profileResponse, "Não conseguimos ler esse link. Confira se ele abre sem login e tente novamente."));
+        setSelectedSheet(sourceProfile?.selected_sheet ?? null);
+      }
+      else applyProfile(await profileResponse.json());
     } catch {
-      setAnalysisMessage("Não foi possível acessar o serviço de tratamento. Confirme se ele está em execução.");
+      setAnalysisMessageKind("error");
+      setAnalysisMessage("Não conseguimos abrir esse link agora. Verifique sua conexão e tente novamente.");
+      setSelectedSheet(sourceProfile?.selected_sheet ?? null);
     } finally {
       setIsAnalyzing(false);
     }
@@ -130,13 +153,24 @@ export default function ImportWorkspace() {
       const response = sourceFile
         ? await fetch("/api/import-draft", { method: "POST", body: (() => { const draftForm = new FormData(); draftForm.append("sourceFile", sourceFile); draftForm.append("title", sourceProfile.file_name); draftForm.append("include_all_sheets", String(includeAllSheets)); if (selectedSheet) draftForm.append("sheetName", selectedSheet); return draftForm; })() })
         : await fetch("/api/import-draft-link", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ source_url: sourceProfile.source_url, title: sourceProfile.file_name, sheet_name: selectedSheet, include_all_sheets: includeAllSheets }) });
-      const payload = await response.json();
-      if (!response.ok) setAnalysisMessage(payload.detail ?? payload.message ?? "Não foi possível criar o rascunho.");
-      else {
-        setDraftImportId(payload.import_id);
-        setAnalysisMessage(includeAllSheets ? `${payload.total_rows.toLocaleString("pt-BR")} registros de ${payload.imported_sheets.length} abas foram importados para revisão.` : "");
+      if (!response.ok) {
+        setAnalysisMessageKind("error");
+        setAnalysisMessage(await importErrorMessage(response, "Não conseguimos guardar essa fonte. Tente novamente."));
       }
-    } catch { setAnalysisMessage("Não foi possível salvar o rascunho no momento."); }
+      else {
+        const payload = await response.json();
+        setDraftImportId(payload.import_id);
+        const importedRows = Number(payload.total_rows ?? sourceProfile.rows);
+        const importedSheetCount = Array.isArray(payload.imported_sheets) ? payload.imported_sheets.length : 1;
+        setAnalysisMessageKind("success");
+        setAnalysisMessage(includeAllSheets && sourceProfile.sheets && sourceProfile.sheets.length > 1
+          ? `${importedRows.toLocaleString("pt-BR")} registros de ${importedSheetCount.toLocaleString("pt-BR")} abas foram guardados para revisão. Cada aba continua separada.`
+          : `${importedRows.toLocaleString("pt-BR")} registros foram guardados para revisão. O arquivo original foi mantido.`);
+      }
+    } catch {
+      setAnalysisMessageKind("error");
+      setAnalysisMessage("Não foi possível salvar a importação. Seus dados continuam no arquivo original; tente novamente.");
+    }
     finally { setIsSavingDraft(false); }
   }
 
@@ -145,8 +179,16 @@ export default function ImportWorkspace() {
     setIsDiscarding(true);
     try {
       const response = await fetch(`/api/imports/${draftImportId}/discard`, { method: "POST" });
-      if (response.ok) setDraftImportId(null);
+      if (response.ok) {
+        setDraftImportId(null);
+        setAnalysisMessageKind("success");
+        setAnalysisMessage("Rascunho descartado. O arquivo original no seu computador não foi alterado.");
+      } else {
+        setAnalysisMessageKind("error");
+        setAnalysisMessage(await importErrorMessage(response, "Não conseguimos descartar essa importação. Tente novamente."));
+      }
     } catch {
+      setAnalysisMessageKind("error");
       setAnalysisMessage("Não foi possível descartar o rascunho no momento.");
     } finally {
       setIsDiscarding(false);
@@ -179,6 +221,7 @@ export default function ImportWorkspace() {
         downloadCandidates={downloadCandidates}
         importMethod={importMethod}
         isAnalyzing={isAnalyzing}
+        analysisMessageKind={analysisMessageKind}
         onFileChange={selectSourceFile}
         onFileSubmit={profileUploadedFile}
         onImportMethodChange={setImportMethod}
@@ -187,8 +230,8 @@ export default function ImportWorkspace() {
         onSourceUrlChange={selectSourceUrl}
         sourceUrl={sourceUrl}
       /> : null}
-      {currentStep === 2 && sourceProfile ? <EtapaLeitura feedbackMessage={analysisMessage} isAnalyzing={isAnalyzing} onAdvance={() => goToStep(3)} onSelectSheet={selectWorkbookSheet} sourceProfile={sourceProfile} /> : null}
-      {currentStep === 3 && sourceProfile ? <EtapaDestino feedbackMessage={analysisMessage} importId={draftImportId} isDiscarding={isDiscarding} isSavingDraft={isSavingDraft} onDiscard={discardDraft} onSaveDraft={saveDraft} sourceProfile={sourceProfile} /> : null}
+      {currentStep === 2 && sourceProfile ? <EtapaLeitura feedbackMessage={analysisMessage} feedbackMessageKind={analysisMessageKind} isAnalyzing={isAnalyzing} onAdvance={() => goToStep(3)} onSelectSheet={selectWorkbookSheet} sourceProfile={sourceProfile} /> : null}
+      {currentStep === 3 && sourceProfile ? <EtapaDestino feedbackMessage={analysisMessage} feedbackMessageKind={analysisMessageKind} importId={draftImportId} isDiscarding={isDiscarding} isSavingDraft={isSavingDraft} onDiscard={discardDraft} onSaveDraft={saveDraft} sourceProfile={sourceProfile} /> : null}
     </main>
   </div>;
 }

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { ChartNoAxesCombined, Database, FileUp, Link2, ListTree, RefreshCw } from "lucide-react";
 import styles from "../page.module.css";
+import { StatusNotice } from "../_components/status-notice";
 
 type DashboardValue = {
   id: string;
@@ -77,8 +78,8 @@ export default function ReviewedDataPage() {
         <div className={styles.sectionHeading}><div><h2>Filtrar a conferência</h2><span>Indicadores com unidades diferentes permanecem separados.</span></div></div>
         <div className={styles.sourceForm}><label>Indicador<select onChange={(event) => setSelectedIndicator(event.target.value)} value={selectedIndicator}><option value="">Todos os indicadores</option>{indicators.map(([indicatorCode, indicatorName]) => <option key={indicatorCode} value={indicatorCode}>{indicatorName}</option>)}</select></label></div>
       </section>
-      {isLoading ? <p className={styles.loadingNotice}>Carregando valores aprovados.</p> : null}
-      {message ? <p className={styles.feedbackMessage}>{message}</p> : null}
+      {isLoading ? <StatusNotice variant="loading">Carregando valores aprovados.</StatusNotice> : null}
+      {message ? <StatusNotice action={{ label: "Tentar novamente", onClick: () => void loadDashboardValues() }} variant="error">{message}</StatusNotice> : null}
       {!isLoading && !message ? <section className={styles.tableWorkspace}><div className={styles.tableHeading}><div><p className={styles.eyebrow}>VALORES PUBLICADOS</p><h2>Conferência por registro</h2></div><span>{visibleValues.length.toLocaleString("pt-BR")} registros</span></div>{visibleValues.length ? <div className={styles.tableWrap}><table><thead><tr><th>Indicador</th><th>Período</th><th>Valor</th><th>Município</th><th>Fonte</th><th>Importação</th></tr></thead><tbody>{visibleValues.map((dashboardValue) => <tr key={dashboardValue.id}><td>{dashboardValue.indicator_name}</td><td>{new Date(`${dashboardValue.reference_period}T12:00:00`).toLocaleDateString("pt-BR", { month: "short", year: "numeric" })}</td><td>{formatValue(dashboardValue.value)} {dashboardValue.unit}</td><td>{dashboardValue.dimensions.municipality_ibge_code ?? "-"}</td><td>{dashboardValue.source_name}</td><td>{dashboardValue.import_title}</td></tr>)}</tbody></table></div> : <p className={styles.profileGuidance}>Ainda não há valores aprovados. Salve uma importação, revise as colunas e aprove o indicador para ela aparecer aqui.</p>}</section> : null}
     </main>
   </div>;

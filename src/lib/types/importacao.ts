@@ -33,4 +33,5 @@ export type SourceProfile = {
   sheets?: { name: string; rows: number; columns: number; has_data?: boolean }[];
   selected_sheet?: string | null;
   reading_notes?: string[];
+  quality_warnings?: string[];
 };

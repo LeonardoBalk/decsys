@@ -1,4 +1,5 @@
 import gzip
+import hmac
 import ipaddress
 import json
 import os
@@ -9,6 +10,7 @@ import time
 import unicodedata
 import zipfile
 from hashlib import sha256
+from email.message import Message
 from io import BytesIO, StringIO
 from pathlib import Path
 from typing import Any
@@ -18,7 +20,7 @@ import httpx
 import polars as pl
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
-from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import Response
 from openpyxl import Workbook, load_workbook
 from openai import OpenAI
@@ -106,7 +108,32 @@ def supabase_url(path: str) -> str:
     return f"{project_url}{path}"
 
 
+@app.get("/keepalive")
+def keepalive(authorization: str | None = Header(default=None)) -> dict[str, str]:
+    keepalive_secret = os.getenv("KEEPALIVE_SECRET")
+    if not keepalive_secret:
+        raise HTTPException(503, "O monitoramento do banco ainda não foi configurado.")
+    expected_authorization = f"Bearer {keepalive_secret}".encode("utf-8")
+    provided_authorization = (authorization or "").encode("utf-8")
+    if not hmac.compare_digest(provided_authorization, expected_authorization):
+        raise HTTPException(401, "Não autorizado.")
+    try:
+        database_response = httpx.get(
+            supabase_url("/rest/v1/imports"),
+            params={"select": "id", "limit": "1"},
+            headers=supabase_headers(),
+            timeout=10.0,
+        )
+    except httpx.TransportError:
+        raise HTTPException(503, "Não foi possível consultar o banco de dados.")
+    if not database_response.is_success:
+        raise HTTPException(503, "Não foi possível consultar o banco de dados.")
+    return {"status": "ok", "database": "reachable"}
+
+
 def import_tables(source_name: str, source_content: bytes, selected_sheet: str | None, include_all_sheets: bool) -> list[tuple[str, pl.DataFrame]]:
+    if not include_all_sheets or not selected_sheet:
+        selected_sheet = resolve_sheet_name(source_name, source_content, selected_sheet)
     if include_all_sheets and Path(source_name).suffix.lower() == ".xlsx":
         tables: list[tuple[str, pl.DataFrame]] = []
         for sheet in workbook_sheets(source_content):
@@ -164,7 +191,9 @@ def persist_import(source_name: str, source_content: bytes, source_url: str | No
 
 
 def normalize_column(column_name: str) -> str:
-    return "_".join(column_name.strip().lower().replace("/", " ").split())
+    normalized_name = "".join(character for character in unicodedata.normalize("NFKD", column_name.strip().lower()) if not unicodedata.combining(character))
+    normalized_name = re.sub(r"_duplicated_(\d+)$", lambda match: f"_{int(match.group(1)) + 2}", normalized_name)
+    return "_".join(normalized_name.replace("/", " ").split())
 
 
 def normalize_table_columns(source_table: pl.DataFrame) -> pl.DataFrame:
@@ -181,7 +210,17 @@ def normalize_table_columns(source_table: pl.DataFrame) -> pl.DataFrame:
             suffix += 1
         normalized_names.append(unique_name)
         used_names.add(unique_name)
-    return source_table.rename(dict(zip(source_table.columns, normalized_names)))
+    normalized_table = source_table.rename(dict(zip(source_table.columns, normalized_names)))
+    municipality_code_columns = [column_name for column_name in normalized_table.columns if any(token in column_name for token in ("ibge", "cod_mun", "codigo_municip", "municipio_codigo"))]
+    for column_name in municipality_code_columns:
+        code_as_text = pl.col(column_name).cast(pl.String)
+        normalized_table = normalized_table.with_columns(
+            pl.when(code_as_text.str.contains(r"^[0-9]{1,7}(?:\.0+)?$"))
+            .then(code_as_text.str.replace(r"\.0+$", "").str.pad_start(7, "0"))
+            .otherwise(code_as_text)
+            .alias(column_name)
+        )
+    return normalized_table
 
 
 def period_from_column_name(column_name: str) -> tuple[int, int] | None:
@@ -232,10 +271,35 @@ def is_bot_challenge(response_status: int, response_headers: httpx.Headers, resp
     return False
 
 
+def resolve_source_file_name(final_url: str, content_type: str, content_disposition: str | None = None) -> str:
+    disposition_header = Message()
+    if content_disposition:
+        disposition_header["Content-Disposition"] = content_disposition
+    header_file_name = disposition_header.get_filename()
+    source_name = Path(header_file_name).name if header_file_name else Path(urlparse(final_url).path).name
+    source_name = source_name or "fonte-remota"
+    if Path(source_name).suffix:
+        return source_name
+    media_type = content_type.split(";", 1)[0].strip().lower()
+    extension_by_media_type = {
+        "application/json": ".json",
+        "text/csv": ".csv",
+        "text/tab-separated-values": ".csv",
+        "application/zip": ".zip",
+        "application/gzip": ".gz",
+        "application/x-gzip": ".gz",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet": ".xlsx",
+        "application/vnd.ms-excel": ".xls",
+        "application/x-excel": ".xls",
+    }
+    return f"{source_name}{extension_by_media_type.get(media_type, '')}"
+
+
 async def download_source(source_url: str) -> tuple[str, bytes, str, str]:
     current_url = normalize_share_link(source_url)
     validate_source_url(current_url)
     content_type = ""
+    content_disposition = None
     source_content = b""
     final_url = current_url
     try:
@@ -248,6 +312,7 @@ async def download_source(source_url: str) -> tuple[str, bytes, str, str]:
                         current_url = next_url
                         continue
                     content_type = streamed_response.headers.get("content-type", "")
+                    content_disposition = streamed_response.headers.get("content-disposition")
                     accumulated_content = bytearray()
                     async for content_chunk in streamed_response.aiter_bytes():
                         accumulated_content.extend(content_chunk)
@@ -262,16 +327,7 @@ async def download_source(source_url: str) -> tuple[str, bytes, str, str]:
                 raise HTTPException(400, "O link excedeu o número de redirecionamentos permitido.")
     except httpx.TransportError:
         raise HTTPException(502, "Não foi possível conectar a esse endereço. Confirme se o link está correto e se o site está no ar.")
-    source_name = Path(urlparse(final_url).path).name or "fonte-remota"
-    if not Path(source_name).suffix:
-        if "application/json" in content_type:
-            source_name = f"{source_name}.json"
-        elif "text/csv" in content_type:
-            source_name = f"{source_name}.csv"
-        elif "zip" in content_type:
-            source_name = f"{source_name}.zip"
-        elif "gzip" in content_type:
-            source_name = f"{source_name}.gz"
+    source_name = resolve_source_file_name(final_url, content_type, content_disposition)
     return source_name, source_content, content_type, final_url
 
 
@@ -342,16 +398,26 @@ def detect_csv_separator(csv_text: str) -> str:
 
 
 def normalize_brazilian_decimals(source_table: pl.DataFrame) -> pl.DataFrame:
-    numeric_pattern = r"^-?(?:(?:[0-9]{1,3}(\.[0-9]{3})*|[0-9]+)(,[0-9]+)?|,[0-9]+)$"
+    numeric_pattern = r"^-?(?:(?:[0-9]{1,3}(\.[0-9]{3})*|[0-9]+)(,[0-9]+)?|[0-9]+\.[0-9]+|,[0-9]+)$"
     normalized_columns: list[pl.Expr] = []
     for column_name, data_type in zip(source_table.columns, source_table.dtypes):
         if data_type != pl.String:
             continue
         non_empty_values = [str(value).strip() for value in source_table[column_name].drop_nulls().to_list() if str(value).strip() not in {"", "-"}]
         numeric_values = [value for value in non_empty_values if re.fullmatch(numeric_pattern, value)]
-        has_decimal_separator = any("," in value for value in numeric_values)
-        if non_empty_values and has_decimal_separator and len(numeric_values) / len(non_empty_values) >= 0.8:
-            normalized_columns.append(pl.col(column_name).cast(pl.String).str.strip_chars().replace("-", None).str.replace_all(".", "", literal=True).str.replace(",", ".", literal=True).cast(pl.Float64, strict=False).alias(column_name))
+        has_decimal_separator = any("," in value or "." in value for value in numeric_values)
+        if non_empty_values and has_decimal_separator and len(numeric_values) / len(non_empty_values) >= 0.6:
+            trimmed_values = pl.col(column_name).cast(pl.String).str.strip_chars()
+            brazilian_decimal_values = trimmed_values.str.replace_all(".", "", literal=True).str.replace(",", ".", literal=True)
+            normalized_columns.append(
+                pl.when(trimmed_values.is_in(["", "-"]))
+                .then(None)
+                .when(trimmed_values.str.contains(","))
+                .then(brazilian_decimal_values)
+                .otherwise(trimmed_values)
+                .cast(pl.Float64, strict=False)
+                .alias(column_name)
+            )
     return source_table.with_columns(normalized_columns) if normalized_columns else source_table
 
 
@@ -384,8 +450,24 @@ def has_cell_value(cell_value: Any) -> bool:
     return cell_value is not None and str(cell_value).strip() != ""
 
 
+def has_excel_cell_value(cell_value: Any) -> bool:
+    return has_cell_value(cell_value) and not str(cell_value).strip().lower().startswith("__unnamed__")
+
+
 def is_numeric_cell(cell_value: Any) -> bool:
-    return isinstance(cell_value, (int, float)) and not isinstance(cell_value, bool)
+    if isinstance(cell_value, (int, float)) and not isinstance(cell_value, bool):
+        return True
+    if not isinstance(cell_value, str):
+        return False
+    numeric_text = cell_value.strip().replace(" ", "")
+    if "," in numeric_text and "." in numeric_text:
+        if numeric_text.rfind(",") > numeric_text.rfind("."):
+            numeric_text = numeric_text.replace(".", "").replace(",", ".")
+        else:
+            numeric_text = numeric_text.replace(",", "")
+    else:
+        numeric_text = numeric_text.replace(",", ".")
+    return re.fullmatch(r"[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:[eE][+-]?\d+)?", numeric_text) is not None
 
 
 def unique_header_names(header_names: list[str]) -> list[str]:
@@ -409,15 +491,34 @@ def infer_excel_headers(source_content: bytes, sheet_name: str) -> dict[str, Any
     sample_rows = list(worksheet.iter_rows(min_row=1, max_row=min(worksheet.max_row, 40), values_only=True))
     data_row_number = None
     for row_number, row_values in enumerate(sample_rows, start=1):
-        populated_values = [cell_value for cell_value in row_values if has_cell_value(cell_value)]
+        populated_values = [cell_value for cell_value in row_values if has_excel_cell_value(cell_value)]
         numeric_count = sum(is_numeric_cell(cell_value) for cell_value in populated_values)
         if len(populated_values) >= 3 and numeric_count >= 2 and numeric_count / len(populated_values) >= 0.2:
             data_row_number = row_number
             break
-    if data_row_number is None or data_row_number == 1:
+    if data_row_number is None:
+        populated_counts = [sum(has_excel_cell_value(cell_value) for cell_value in row_values) for row_values in sample_rows]
+        maximum_populated_count = max(populated_counts, default=0)
+        if maximum_populated_count < 2:
+            return None
+        header_row_index = populated_counts.index(maximum_populated_count)
+        header_row = sample_rows[header_row_index]
+        header_names = [" ".join(str(cell_value).split()) if has_cell_value(cell_value) else "" for cell_value in header_row]
+        data_samples = sample_rows[header_row_index + 1:min(len(sample_rows), header_row_index + 6)]
+        has_following_data = any(sum(has_excel_cell_value(cell_value) for cell_value in row_values) >= 2 for row_values in data_samples)
+        if not has_following_data:
+            return None
+        data_columns = [column_index for column_index in range(worksheet.max_column) if any(column_index < len(row_values) and has_excel_cell_value(row_values[column_index]) for row_values in data_samples)]
+        resolved_headers = [header_names[column_index] if column_index < len(header_names) else "" for column_index in data_columns]
+        return {"header_row": header_row_index, "header_rows": [header_row_index + 1], "header_names": unique_header_names(resolved_headers)}
+    if data_row_number == 1:
         return None
     header_start = data_row_number - 1
-    while header_start > 1 and any(has_cell_value(cell_value) for cell_value in sample_rows[header_start - 2]):
+    while header_start > 1 and data_row_number - header_start < 3:
+        previous_header_row = sample_rows[header_start - 2]
+        populated_header_cells = sum(has_excel_cell_value(cell_value) for cell_value in previous_header_row)
+        if populated_header_cells < 2:
+            break
         header_start -= 1
     header_rows = sample_rows[header_start - 1:data_row_number - 1]
     data_samples = sample_rows[data_row_number - 1:min(len(sample_rows), data_row_number + 5)]
@@ -425,15 +526,18 @@ def infer_excel_headers(source_content: bytes, sheet_name: str) -> dict[str, Any
     header_names: list[str] = []
     for column_index in range(worksheet.max_column):
         labels: list[str] = []
+        has_direct_header = False
         for level, header_row in enumerate(header_rows):
             cell_value = header_row[column_index] if column_index < len(header_row) else None
-            if has_cell_value(cell_value):
-                carried_labels[level] = " ".join(str(cell_value).split())
+            if has_excel_cell_value(cell_value):
+                has_direct_header = True
+                header_text = str(cell_value).replace("-_x000d_\n", "").replace("-\n", "").replace("_x000d_", " ").replace("\r", " ").replace("\n", " ")
+                carried_labels[level] = " ".join(header_text.split())
             if carried_labels[level] and carried_labels[level] not in labels:
                 labels.append(carried_labels[level])
-        has_data = any(column_index < len(data_row) and has_cell_value(data_row[column_index]) for data_row in data_samples)
+        has_data = any(column_index < len(data_row) and has_excel_cell_value(data_row[column_index]) for data_row in data_samples)
         if has_data:
-            header_names.append(" ".join(labels))
+            header_names.append(" ".join(labels) if has_direct_header else "")
     return {"header_row": data_row_number - 2, "header_rows": list(range(header_start, data_row_number)), "header_names": unique_header_names(header_names)}
 
 
@@ -455,6 +559,11 @@ def read_excel_table(source_content: bytes, sheet_name: str) -> pl.DataFrame:
         raise HTTPException(422, f'A aba "{sheet_name}" não possui dados para importar. Escolha outra aba da planilha.')
     if header_configuration and len(header_configuration["header_names"]) == source_table.width:
         source_table = source_table.rename(dict(zip(source_table.columns, header_configuration["header_names"])))
+        repeated_header_row = pl.all_horizontal([
+            pl.col(column_name).cast(pl.String).str.strip_chars().str.to_lowercase() == header_name.strip().lower()
+            for column_name, header_name in zip(source_table.columns, header_configuration["header_names"])
+        ])
+        source_table = source_table.filter(~repeated_header_row)
     return trim_trailing_spreadsheet_notes(source_table)
 
 
@@ -469,18 +578,31 @@ def resolve_sheet_name(source_name: str, source_content: bytes, requested_sheet_
         if requested_sheet_name not in {str(sheet["name"]) for sheet in available_sheets}:
             raise HTTPException(422, "A aba selecionada não existe mais nessa planilha.")
         return requested_sheet_name
-    sheet_candidates = sorted(available_sheets, key=lambda worksheet: int(worksheet["rows"]) * int(worksheet["columns"]), reverse=True)
-    for sheet_candidate in sheet_candidates:
+    sheet_candidates: list[tuple[int, str]] = []
+    for sheet_candidate in available_sheets:
         try:
-            candidate_table = read_excel_table(source_content, str(sheet_candidate["name"]))
-            if candidate_table.height and candidate_table.width:
-                return str(sheet_candidate["name"])
-        except pl.exceptions.NoDataError:
+            candidate_table = read_table(source_name, source_content, str(sheet_candidate["name"]))
+        except HTTPException:
             continue
+        if candidate_table.height and candidate_table.width:
+            sheet_candidates.append((candidate_table.height * candidate_table.width, str(sheet_candidate["name"])))
+    if sheet_candidates:
+        return max(sheet_candidates, key=lambda candidate: candidate[0])[1]
     raise HTTPException(422, "Nenhuma aba da planilha contém uma tabela que possa ser lida.")
 
 
 def read_table(source_name: str, source_content: bytes, sheet_name: str | None = None) -> pl.DataFrame:
+    if not source_content:
+        raise HTTPException(422, "O arquivo está vazio. Envie uma planilha ou arquivo de dados válido.")
+    try:
+        return read_table_content(source_name, source_content, sheet_name)
+    except HTTPException:
+        raise
+    except Exception as parse_error:
+        raise HTTPException(422, "Não foi possível ler este arquivo. Confirme se ele não está corrompido e se o formato corresponde à extensão.") from parse_error
+
+
+def read_table_content(source_name: str, source_content: bytes, sheet_name: str | None = None) -> pl.DataFrame:
     source_extension = Path(source_name).suffix.lower()
     if source_extension == ".gz":
         return read_table(Path(source_name).stem, gzip.decompress(source_content))
@@ -496,11 +618,11 @@ def read_table(source_name: str, source_content: bytes, sheet_name: str | None =
         return normalize_brazilian_decimals(pl.read_csv(StringIO(csv_text), try_parse_dates=True, infer_schema_length=500, separator=detect_csv_separator(csv_text)))
     if source_extension == ".xlsx":
         selected_sheet = resolve_sheet_name(source_name, source_content, sheet_name)
-        return read_excel_table(source_content, str(selected_sheet))
+        return normalize_brazilian_decimals(read_excel_table(source_content, str(selected_sheet)))
     if source_extension == ".xls":
-        return pl.read_excel(BytesIO(source_content), sheet_name=sheet_name, infer_schema_length=500)
+        return normalize_brazilian_decimals(pl.read_excel(BytesIO(source_content), sheet_name=sheet_name, infer_schema_length=500))
     if source_extension == ".json":
-        return read_json_table(source_content)
+        return normalize_brazilian_decimals(read_json_table(source_content))
     raise HTTPException(415, "Formato não suportado. Envie ou indique CSV, XLSX, XLS, JSON, ou um .zip/.gz contendo um desses formatos.")
 
 
@@ -508,6 +630,8 @@ def profile_table(source_name: str, source_content: bytes, source_url: str | Non
     selected_sheet = resolve_sheet_name(source_name, source_content, sheet_name)
     source_table = read_table(source_name, source_content, selected_sheet)
     source_table = normalize_table_columns(source_table)
+    if not source_table.height or not source_table.width:
+        raise HTTPException(422, "Não encontramos linhas e colunas de dados nesta aba. Escolha uma aba que contenha uma tabela.")
     null_counts = {column_name: int(source_table[column_name].null_count()) for column_name in source_table.columns}
     source_profile = {
         "kind": source_kind,
@@ -520,16 +644,52 @@ def profile_table(source_name: str, source_content: bytes, source_url: str | Non
         "indicator_recommendations": recommend_indicators(source_table),
     }
     if Path(source_name).suffix.lower() == ".xlsx":
-        source_profile["sheets"] = [{**sheet, "rows": source_table.height} if sheet["name"] == selected_sheet else sheet for sheet in workbook_sheets(source_content)]
+        sheet_profiles = []
+        for sheet in workbook_sheets(source_content):
+            if sheet["name"] == selected_sheet:
+                sheet_profiles.append({**sheet, "rows": source_table.height, "columns": source_table.width})
+                continue
+            try:
+                sheet_table = read_table(source_name, source_content, str(sheet["name"]))
+                sheet_profiles.append({**sheet, "rows": sheet_table.height, "columns": sheet_table.width})
+            except HTTPException:
+                sheet_profiles.append({**sheet, "rows": 0, "columns": 0})
+        source_profile["sheets"] = sheet_profiles
         source_profile["selected_sheet"] = selected_sheet
         header_configuration = infer_excel_headers(source_content, str(selected_sheet))
         if header_configuration:
             source_profile["reading_notes"] = [f"O Decsys identificou {len(header_configuration['header_rows'])} linha(s) de cabeçalho e combinou os títulos antes de ler os dados."]
+        source_profile["quality_warnings"] = excel_quality_warnings(source_content, str(selected_sheet), source_table)
     if len(source_content) > ai_assessment_size_limit:
         source_profile["agent_assessment"] = {"status": "skipped", "summary": f"A leitura estrutural foi concluída. O arquivo tem mais de {ai_assessment_size_limit // (1024 * 1024)} MB, então a avaliação por IA foi pulada para manter a resposta rápida."}
     else:
         source_profile["agent_assessment"] = assess_source(source_profile)
     return source_profile
+
+
+def excel_quality_warnings(source_content: bytes, sheet_name: str, source_table: pl.DataFrame) -> list[str]:
+    quality_warnings: list[str] = []
+    sparse_unlabeled_columns = []
+    for column_name in source_table.columns:
+        if not column_name.startswith("coluna_") or not source_table.height:
+            continue
+        populated_count = source_table.height - source_table[column_name].null_count()
+        if populated_count and populated_count / source_table.height <= 0.1:
+            sparse_unlabeled_columns.append(column_name)
+    if sparse_unlabeled_columns:
+        quality_warnings.append(f"Encontramos {len(sparse_unlabeled_columns)} coluna(s) sem título, com poucos valores. Confira se esses campos pertencem à tabela antes de mapear.")
+
+    workbook = load_workbook(BytesIO(source_content), read_only=True, data_only=True)
+    worksheet = workbook[sheet_name]
+    title_text = " ".join(str(cell_value) for row_values in worksheet.iter_rows(min_row=1, max_row=min(worksheet.max_row, 5), values_only=True) for cell_value in row_values if has_excel_cell_value(cell_value))
+    workbook.close()
+    normalized_title_text = re.sub(r"[_\W]+", " ", title_text, flags=re.UNICODE)
+    expected_count_match = re.search(r"\b(\d{1,4})\s+maiores?\b", normalized_title_text, re.IGNORECASE)
+    if expected_count_match:
+        expected_record_count = int(expected_count_match.group(1))
+        if expected_record_count != source_table.height:
+            quality_warnings.append(f"O título menciona {expected_record_count} registros, mas a tabela contém {source_table.height}. Confira se a planilha está completa antes de continuar.")
+    return quality_warnings
 
 
 def suggest_mapping(source_table: pl.DataFrame) -> dict[str, str]:
@@ -853,7 +1013,29 @@ def approve_municipal_import(import_id: str, approval: MunicipalApproval) -> dic
     approval_response = httpx.post(supabase_url("/rest/v1/rpc/approve_municipal_import"), headers=supabase_headers(), json={"selected_import_id": import_id, "selected_indicator_id": approval.indicator_id, "municipality_field": approval.municipality_field, "year_field": approval.year_field, "value_field": approval.value_field, "observation_unit": approval.unit, "selected_sheet_name": approval.sheet_name}, timeout=30.0)
     if not approval_response.is_success:
         raise HTTPException(502, "Não foi possível aprovar a importação municipal.")
-    return {"import_id": import_id, "status": "approved", "approved_rows": approval_response.json()}
+    approved_rows = int(approval_response.json())
+    return {"import_id": import_id, "status": "approved" if approved_rows else "needs_review", "approved_rows": approved_rows}
+
+
+@app.get("/imports/{import_id}/validation-issues")
+def list_import_validation_issues(import_id: str) -> list[dict[str, Any]]:
+    validation_issues: list[dict[str, Any]] = []
+    page_size = 1000
+    page_offset = 0
+    while True:
+        issues_response = httpx.get(
+            supabase_url("/rest/v1/validation_issues"),
+            params={"import_id": f"eq.{import_id}", "select": "severity,row_number,field,message,created_at", "order": "row_number.asc,created_at.desc", "limit": str(page_size), "offset": str(page_offset)},
+            headers=supabase_headers(),
+            timeout=30.0,
+        )
+        if not issues_response.is_success:
+            raise HTTPException(502, "Não foi possível carregar as pendências desta importação.")
+        current_page = issues_response.json()
+        validation_issues.extend(current_page)
+        if len(current_page) < page_size:
+            return validation_issues
+        page_offset += page_size
 
 
 @app.post("/imports/{import_id}/normalize-municipal-wide")
@@ -879,35 +1061,79 @@ def approve_generic_import(import_id: str, approval: GenericApproval) -> dict[st
 
 @app.get("/imports/{import_id}/export.csv")
 def export_import_csv(import_id: str) -> Response:
-    rows_response = httpx.get(supabase_url("/rest/v1/import_rows"), params={"import_id": f"eq.{import_id}", "select": "raw_row", "order": "row_number"}, headers=supabase_headers(), timeout=30.0)
-    if not rows_response.is_success:
-        raise HTTPException(502, "Não foi possível preparar a exportação.")
-    records = [entry["raw_row"] for entry in rows_response.json()]
-    field_names = list(dict.fromkeys(field_name for record in records for field_name in record))
+    import_rows = fetch_import_rows(import_id)
+    field_names = list(dict.fromkeys(field_name for import_row in import_rows for field_name in import_row["raw_row"]))
+    sheet_field_name = "aba"
+    suffix = 2
+    while sheet_field_name in set(field_names):
+        sheet_field_name = f"aba_{suffix}"
+        suffix += 1
     csv_buffer = StringIO()
-    csv_writer = csv.DictWriter(csv_buffer, fieldnames=field_names, extrasaction="ignore", delimiter=";")
+    csv_writer = csv.DictWriter(csv_buffer, fieldnames=[sheet_field_name, *field_names], extrasaction="ignore", delimiter=";")
     csv_writer.writeheader()
-    csv_writer.writerows(records)
+    for import_row in import_rows:
+        csv_writer.writerow({sheet_field_name: import_row["sheet_name"], **{field_name: spreadsheet_export_value(field_value) for field_name, field_value in import_row["raw_row"].items()}})
     return Response("\ufeff" + csv_buffer.getvalue(), media_type="text/csv; charset=utf-8", headers={"Content-Disposition": f'attachment; filename="importacao-{import_id}.csv"'})
 
 
 @app.get("/imports/{import_id}/export.xlsx")
 def export_import_xlsx(import_id: str) -> Response:
-    rows_response = httpx.get(supabase_url("/rest/v1/import_rows"), params={"import_id": f"eq.{import_id}", "select": "raw_row", "order": "row_number"}, headers=supabase_headers(), timeout=30.0)
-    if not rows_response.is_success:
-        raise HTTPException(502, "Não foi possível preparar a exportação.")
-    records = [entry["raw_row"] for entry in rows_response.json()]
-    field_names = list(dict.fromkeys(field_name for record in records for field_name in record))
+    import_rows = fetch_import_rows(import_id)
     workbook = Workbook()
-    worksheet = workbook.active
-    worksheet.title = "Dados"
-    worksheet.append(field_names)
-    for record in records:
-        worksheet.append([record.get(field_name) for field_name in field_names])
-    worksheet.freeze_panes = "A2"
-    for column_cells in worksheet.columns:
-        longest_value = max(len(str(cell.value or "")) for cell in column_cells)
-        worksheet.column_dimensions[column_cells[0].column_letter].width = min(longest_value + 2, 48)
+    workbook.remove(workbook.active)
+    import_rows_by_sheet: dict[str, list[dict[str, Any]]] = {}
+    for import_row in import_rows:
+        import_rows_by_sheet.setdefault(import_row["sheet_name"], []).append(import_row)
+    if not import_rows_by_sheet:
+        import_rows_by_sheet["Dados"] = []
+    for sheet_name, sheet_rows in import_rows_by_sheet.items():
+        worksheet = workbook.create_sheet(safe_workbook_sheet_name(sheet_name, workbook.sheetnames))
+        records = [import_row["raw_row"] for import_row in sheet_rows]
+        field_names = list(dict.fromkeys(field_name for record in records for field_name in record))
+        worksheet.append(field_names)
+        for record in records:
+            worksheet.append([spreadsheet_export_value(record.get(field_name)) for field_name in field_names])
+        worksheet.freeze_panes = "A2"
+        for column_cells in worksheet.columns:
+            longest_value = max(len(str(cell.value or "")) for cell in column_cells)
+            worksheet.column_dimensions[column_cells[0].column_letter].width = min(longest_value + 2, 48)
     workbook_buffer = BytesIO()
     workbook.save(workbook_buffer)
     return Response(workbook_buffer.getvalue(), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", headers={"Content-Disposition": f'attachment; filename="importacao-{import_id}.xlsx"'})
+
+
+def fetch_import_rows(import_id: str) -> list[dict[str, Any]]:
+    import_rows: list[dict[str, Any]] = []
+    page_size = 1000
+    page_offset = 0
+    while True:
+        rows_response = httpx.get(
+            supabase_url("/rest/v1/import_rows"),
+            params={"import_id": f"eq.{import_id}", "select": "sheet_name,row_number,raw_row", "order": "sheet_name,row_number", "limit": str(page_size), "offset": str(page_offset)},
+            headers=supabase_headers(),
+            timeout=30.0,
+        )
+        if not rows_response.is_success:
+            raise HTTPException(502, "Não foi possível preparar a exportação.")
+        current_page = rows_response.json()
+        import_rows.extend(current_page)
+        if len(current_page) < page_size:
+            return import_rows
+        page_offset += page_size
+
+
+def safe_workbook_sheet_name(sheet_name: str, existing_names: list[str]) -> str:
+    sanitized_name = re.sub(r"[\\/*?:\[\]]", " ", sheet_name).strip()[:31] or "Dados"
+    candidate_name = sanitized_name
+    suffix = 2
+    while candidate_name.casefold() in {existing_name.casefold() for existing_name in existing_names}:
+        suffix_text = f" ({suffix})"
+        candidate_name = f"{sanitized_name[:31 - len(suffix_text)]}{suffix_text}"
+        suffix += 1
+    return candidate_name
+
+
+def spreadsheet_export_value(field_value: Any) -> Any:
+    if isinstance(field_value, (dict, list)):
+        return json.dumps(field_value, ensure_ascii=False, separators=(",", ":"))
+    return field_value
