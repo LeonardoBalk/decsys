@@ -87,9 +87,19 @@
 .workspaceShell .statusNoticeAction { align-self: center; padding: 6px 9px; border: 1px solid var(--color-border-strong); border-radius: var(--radius-sm); background: var(--color-surface-100); color: var(--color-text); font-size: var(--text-caption); font-weight: 600; white-space: nowrap; }
 .workspaceShell .statusNoticeAction:hover { border-color: var(--color-brand); background: var(--color-surface-200); }
 .issueHeading { margin: var(--space-4) 0 0; color: var(--color-text); font-size: var(--text-sm); font-weight: 590; }
-.processHint { padding: var(--space-4); border: 1px solid var(--color-border-muted); border-radius: var(--radius-md); background: var(--color-surface-200); }
-.processHint strong { display: block; margin-bottom: 4px; color: var(--color-text); font-size: var(--text-sm); font-weight: 590; }
-.processHint p { margin: 0; color: var(--color-text-lighter); font-size: var(--text-sm); line-height: var(--leading-relaxed); }
+.municipalPreparation { display: grid; gap: var(--space-4); margin: var(--space-5) 0; }
+.processHint { display: grid; gap: var(--space-3); padding: var(--space-5); border: 1px solid var(--color-border-muted); border-radius: var(--radius-lg); background: var(--color-surface-200); }
+.processHint strong { color: var(--color-text); font-size: var(--text-sm); font-weight: 590; }
+.processHint p { max-width: 760px; margin: 0; color: var(--color-text-lighter); font-size: var(--text-sm); line-height: var(--leading-relaxed); }
+.processHint label { display: grid; gap: var(--space-2); color: var(--color-text); font-size: var(--text-sm); font-weight: 560; }
+.processHint select { width: 100%; min-width: 0; padding: 10px 11px; border: 1px solid var(--color-border-strong); border-radius: var(--radius-md); background: var(--color-surface-100); color: var(--color-text); font: inherit; font-size: var(--text-sm); }
+.processHint select:focus { border-color: var(--color-brand); outline: 0; box-shadow: 0 0 0 3px rgba(62, 158, 255, .16); }
+.processHint > button { justify-self: start; }
+.municipalMappingGrid { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-5) var(--space-4); margin-top: var(--space-4); }
+.municipalMappingGrid > .statusNotice, .municipalMappingGrid > .issueHeading, .municipalMappingGrid > .validationIssueList, .municipalMappingGrid > .mappingSubmit { grid-column: 1 / -1; }
+.municipalMappingGrid > .validationIssueList { margin-top: 0; }
+.municipalMappingGrid > label { min-width: 0; }
+.mappingSubmit { width: 100%; }
 @keyframes statusNoticeSpin { to { transform: rotate(360deg); } }
 @media (prefers-reduced-motion: reduce) { .statusNoticeSpinner { animation: none; } }
 .downloadCandidates { padding: var(--space-6); border: 1px solid var(--color-border-muted); border-radius: var(--radius-lg); background: var(--color-surface-100); }
@@ -218,6 +228,8 @@
   .workspaceShell { padding: 22px 18px 44px; }
   .workspaceIntro { padding-top: 38px; }
   .exportPanel { flex-direction: column; align-items: flex-start; }
+  .municipalMappingGrid { grid-template-columns: minmax(0, 1fr); }
+  .municipalMappingGrid > .statusNotice, .municipalMappingGrid > .issueHeading, .municipalMappingGrid > .validationIssueList, .municipalMappingGrid > .mappingSubmit { grid-column: auto; }
   .indicatorRecommendation { flex-direction: column; align-items: flex-start; }
   .iiuOverview { flex-direction: column; }
   .iiuScoreboard, .iiuDashboardGrid, .iiuInsightGrid { grid-template-columns: 1fr; }
@@ -229,6 +241,8 @@
   .statusNotice { grid-template-columns: 20px minmax(0, 1fr); }
   .statusNoticeAction { grid-column: 2; justify-self: start; }
   .sourceCard, .analysisPanel, .tableWorkspace, .downloadCandidates, .exportPanel { padding: 17px; }
+  .municipalPreparation { gap: var(--space-3); }
+  .processHint { padding: var(--space-4); }
   .iiuOverview, .iiuDimension { padding: 17px; }
   .iiuOverview dl { grid-template-columns: 1fr; }
   .iiuScoreFacts { grid-template-columns: 1fr; }
