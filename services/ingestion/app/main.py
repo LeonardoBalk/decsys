@@ -9,6 +9,7 @@ import csv
 import time
 import unicodedata
 import zipfile
+from concurrent.futures import ThreadPoolExecutor
 from hashlib import sha256
 from email.message import Message
 from io import BytesIO, StringIO
@@ -24,7 +25,7 @@ from fastapi import FastAPI, File, Form, Header, HTTPException, UploadFile
 from fastapi.responses import Response
 from openpyxl import Workbook, load_workbook
 from openai import OpenAI
-from pydantic import BaseModel, HttpUrl
+from pydantic import BaseModel, Field, HttpUrl
 
 load_dotenv(Path(__file__).parents[1] / ".env")
 
@@ -73,6 +74,17 @@ class WideMunicipalTransform(BaseModel):
     municipality_field: str
     value_field: str
     sheet_name: str | None = None
+
+
+class MunicipalityMatch(BaseModel):
+    row_number: int
+    ibge_code: str
+
+
+class MunicipalityResolution(BaseModel):
+    municipality_field: str
+    sheet_name: str | None = None
+    matches: list[MunicipalityMatch] = Field(default_factory=list)
 
 
 class GenericApproval(BaseModel):
@@ -693,11 +705,12 @@ def excel_quality_warnings(source_content: bytes, sheet_name: str, source_table:
 
 
 def suggest_mapping(source_table: pl.DataFrame) -> dict[str, str]:
-    source_columns = set(source_table.columns)
     suggestions: dict[str, str] = {}
-    for column_name in source_columns:
+    for column_name in source_table.columns:
         if any(token in column_name for token in ("ibge", "cod_mun", "codigo_municip")):
             suggestions["municipality_code"] = column_name
+        elif "municipio" in column_name:
+            suggestions["municipality_name"] = column_name
         if column_name in {"ano", "year", "periodo", "ano_referencia"}:
             suggestions["reference_year"] = column_name
         if column_name in {"valor", "value", "indice", "percentual"}:
@@ -1015,6 +1028,139 @@ def approve_municipal_import(import_id: str, approval: MunicipalApproval) -> dic
         raise HTTPException(502, "Não foi possível aprovar a importação municipal.")
     approved_rows = int(approval_response.json())
     return {"import_id": import_id, "status": "approved" if approved_rows else "needs_review", "approved_rows": approved_rows}
+
+
+@app.post("/imports/{import_id}/municipality-matches")
+def suggest_municipality_matches(import_id: str, resolution: MunicipalityResolution) -> dict[str, Any]:
+    municipality_catalog = fetch_ibge_municipalities()
+    municipality_rows = fetch_rows_for_municipality_resolution(import_id, resolution.sheet_name)
+    municipalities_by_name: dict[tuple[str, str], list[dict[str, Any]]] = {}
+    for municipality in municipality_catalog:
+        municipality_key = (normalize_municipality_name(municipality["name"]), municipality["state"])
+        municipalities_by_name.setdefault(municipality_key, []).append(municipality)
+    matches = []
+    for municipality_row in municipality_rows:
+        original_name = str(municipality_row["raw_row"].get(resolution.municipality_field) or "").strip()
+        parsed_name = parse_municipality_name(original_name)
+        candidates = municipalities_by_name.get((normalize_municipality_name(parsed_name[0]), parsed_name[1]), []) if parsed_name else []
+        matches.append({
+            "row_number": municipality_row["row_number"],
+            "original_name": original_name,
+            "status": "matched" if len(candidates) == 1 else "unmatched" if not candidates else "ambiguous",
+            "suggestion": candidates[0] if len(candidates) == 1 else None,
+            "candidates": candidates if len(candidates) > 1 else [],
+        })
+    return {"import_id": import_id, "sheet_name": resolution.sheet_name, "matches": matches, "matched_count": sum(match["status"] == "matched" for match in matches)}
+
+
+@app.post("/imports/{import_id}/apply-municipality-matches")
+def apply_municipality_matches(import_id: str, resolution: MunicipalityResolution) -> dict[str, Any]:
+    if not resolution.matches:
+        raise HTTPException(422, "Selecione ao menos uma correspondência para aplicar.")
+    municipality_catalog = {municipality["ibge_code"]: municipality for municipality in fetch_ibge_municipalities()}
+    requested_codes = {match.ibge_code for match in resolution.matches}
+    if any(ibge_code not in municipality_catalog for ibge_code in requested_codes):
+        raise HTTPException(422, "Um dos códigos escolhidos não existe no catálogo oficial do IBGE. Atualize as sugestões e tente novamente.")
+    municipality_rows = fetch_rows_for_municipality_resolution(import_id, resolution.sheet_name)
+    rows_by_number = {row["row_number"]: row for row in municipality_rows}
+    if any(match.row_number not in rows_by_number for match in resolution.matches):
+        raise HTTPException(422, "Uma ou mais linhas selecionadas não pertencem a esta aba. Atualize as sugestões e tente novamente.")
+    if len({match.row_number for match in resolution.matches}) != len(resolution.matches):
+        raise HTTPException(422, "Uma linha foi enviada mais de uma vez. Atualize as sugestões e tente novamente.")
+    municipalities_by_name: dict[tuple[str, str], list[dict[str, str]]] = {}
+    for municipality in municipality_catalog.values():
+        municipality_key = (normalize_municipality_name(municipality["name"]), municipality["state"])
+        municipalities_by_name.setdefault(municipality_key, []).append(municipality)
+    for row_match in resolution.matches:
+        original_name = str(rows_by_number[row_match.row_number]["raw_row"].get(resolution.municipality_field) or "").strip()
+        parsed_name = parse_municipality_name(original_name)
+        exact_matches = municipalities_by_name.get((normalize_municipality_name(parsed_name[0]), parsed_name[1]), []) if parsed_name else []
+        if len(exact_matches) != 1 or exact_matches[0]["ibge_code"] != row_match.ibge_code:
+            raise HTTPException(422, f'A correspondência informada para a linha {row_match.row_number} não confere com o nome e a UF consultados no IBGE.')
+    confirmed_municipalities = [municipality_catalog[ibge_code] for ibge_code in requested_codes]
+    municipality_headers = supabase_headers("resolution=merge-duplicates,return=minimal")
+    municipality_headers["Content-Profile"] = "municipal"
+    try:
+        municipality_response = httpx.post(
+            supabase_url("/rest/v1/municipalities"),
+            params={"on_conflict": "ibge_code"},
+            headers=municipality_headers,
+            json=[{"ibge_code": municipality["ibge_code"], "name": municipality["name"], "state": municipality["state"]} for municipality in confirmed_municipalities],
+            timeout=30.0,
+        )
+    except httpx.TransportError:
+        raise HTTPException(502, "Não foi possível acessar o Supabase para registrar os municípios confirmados.")
+    if not municipality_response.is_success:
+        raise HTTPException(502, "Os códigos foram conferidos no IBGE, mas não foi possível atualizar o cadastro municipal do Supabase.")
+    def persist_row_match(row_match: MunicipalityMatch) -> bool:
+        staged_row = rows_by_number[row_match.row_number]
+        normalized_row = {**(staged_row["normalized_row"] or {}), "municipality_ibge_code": row_match.ibge_code}
+        try:
+            row_response = httpx.patch(
+                supabase_url("/rest/v1/import_rows"),
+                params={"id": f"eq.{staged_row['id']}", "import_id": f"eq.{import_id}"},
+                headers=supabase_headers("return=minimal"),
+                json={"normalized_row": normalized_row},
+                timeout=30.0,
+            )
+            return row_response.is_success
+        except httpx.TransportError:
+            return False
+    with ThreadPoolExecutor(max_workers=12) as executor:
+        persisted_matches = list(executor.map(persist_row_match, resolution.matches))
+    if not all(persisted_matches):
+        raise HTTPException(502, "Alguns códigos foram preparados, mas não conseguimos salvar todas as correspondências. Confira a importação antes de aprovar.")
+    return {"import_id": import_id, "applied_count": len(resolution.matches), "municipality_field": "municipality_ibge_code"}
+
+
+def fetch_ibge_municipalities() -> list[dict[str, str]]:
+    try:
+        catalog_response = httpx.get("https://servicodados.ibge.gov.br/api/v1/localidades/municipios", timeout=30.0)
+    except httpx.TransportError:
+        raise HTTPException(502, "Não foi possível consultar o catálogo de municípios do IBGE. Tente novamente em alguns instantes.")
+    if not catalog_response.is_success:
+        raise HTTPException(502, "O serviço de localidades do IBGE está indisponível no momento.")
+    try:
+        catalog_records = catalog_response.json()
+        municipality_catalog = []
+        for record in catalog_records:
+            municipality_region = record.get("microrregiao") or record.get("regiao-imediata")
+            state_region = municipality_region.get("mesorregiao") or municipality_region.get("regiao-intermediaria")
+            municipality_catalog.append({"ibge_code": str(record["id"]).zfill(7), "name": record["nome"], "state": state_region["UF"]["sigla"]})
+        return municipality_catalog
+    except (AttributeError, KeyError, TypeError, ValueError):
+        raise HTTPException(502, "O IBGE retornou uma resposta que não conseguimos interpretar. Tente novamente mais tarde.")
+
+
+def fetch_rows_for_municipality_resolution(import_id: str, sheet_name: str | None) -> list[dict[str, Any]]:
+    rows: list[dict[str, Any]] = []
+    page_size = 1000
+    page_offset = 0
+    while True:
+        query_params = {"import_id": f"eq.{import_id}", "select": "id,sheet_name,row_number,raw_row,normalized_row", "order": "row_number.asc", "limit": str(page_size), "offset": str(page_offset)}
+        if sheet_name is not None:
+            query_params["sheet_name"] = f"eq.{sheet_name}"
+        try:
+            rows_response = httpx.get(supabase_url("/rest/v1/import_rows"), params=query_params, headers=supabase_headers(), timeout=30.0)
+        except httpx.TransportError:
+            raise HTTPException(502, "Não foi possível acessar o Supabase para carregar as linhas da importação.")
+        if not rows_response.is_success:
+            raise HTTPException(502, "Não foi possível carregar as linhas para localizar os códigos municipais.")
+        current_page = rows_response.json()
+        rows.extend(current_page)
+        if len(current_page) < page_size:
+            return rows
+        page_offset += page_size
+
+
+def parse_municipality_name(municipality_name: str) -> tuple[str, str] | None:
+    parsed_name = re.fullmatch(r"\s*(.+?)\s*\(([A-Z]{2})\)\s*", municipality_name)
+    return (parsed_name.group(1).strip(), parsed_name.group(2)) if parsed_name else None
+
+
+def normalize_municipality_name(municipality_name: str) -> str:
+    unaccented_name = "".join(character for character in unicodedata.normalize("NFKD", municipality_name.casefold()) if not unicodedata.combining(character))
+    return " ".join(re.sub(r"[^a-z0-9]+", " ", unaccented_name).split())
 
 
 @app.get("/imports/{import_id}/validation-issues")
