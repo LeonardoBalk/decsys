@@ -1,0 +1,8 @@
+import { ingestionSegment, proxyToIngestion } from "@/lib/ingestion-proxy";
+
+export const runtime = "nodejs";
+
+export async function POST(_: Request, context: { params: Promise<{ importId: string }> }) {
+  const { importId } = await context.params;
+  return proxyToIngestion(`/imports/${ingestionSegment(importId)}/include-sheets`, { method: "POST", timeoutMs: 300000 });
+}

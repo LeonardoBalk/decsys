@@ -1,9 +1,8 @@
-import { NextResponse } from "next/server";
+import { ingestionSegment, jsonBody, proxyToIngestion } from "@/lib/ingestion-proxy";
 
 export const runtime = "nodejs";
 
 export async function POST(request: Request, context: { params: Promise<{ importId: string }> }) {
   const { importId } = await context.params;
-  const ingestionResponse = await fetch(`${process.env.INGESTION_API_URL ?? "http://127.0.0.1:8000"}/imports/${importId}/approve-municipal`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(await request.json()), cache: "no-store" });
-  return NextResponse.json(await ingestionResponse.json(), { status: ingestionResponse.status });
+  return proxyToIngestion(`/imports/${ingestionSegment(importId)}/approve-municipal`, { ...(await jsonBody(request)), method: "POST", timeoutMs: 300000 });
 }

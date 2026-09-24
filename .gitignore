@@ -8,3 +8,5 @@ __pycache__
 .claude
 .codex
 .pnpm-store
+tsconfig.tsbuildinfo
+tmp/

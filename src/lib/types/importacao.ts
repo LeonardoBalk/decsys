@@ -8,6 +8,10 @@ export type Indicator = {
   code: string;
   name: string;
   unit: string;
+  dimension?: string;
+  definition?: string;
+  expected_frequency?: string | null;
+  active?: boolean;
 };
 
 export type IndicatorRecommendation = {
@@ -30,8 +34,20 @@ export type SourceProfile = {
   suggestions: Record<string, string>;
   indicator_recommendations?: IndicatorRecommendation[];
   agent_assessment?: { status: string; summary: string; risks?: string[]; municipality_field?: string | null; year_field?: string | null; measure_field?: string | null };
-  sheets?: { name: string; rows: number; columns: number; has_data?: boolean }[];
+  sheets?: { name: string; rows: number; columns: number; has_data?: boolean; imported?: boolean; rows_estimated?: boolean }[];
   selected_sheet?: string | null;
   reading_notes?: string[];
   quality_warnings?: string[];
+  upload_token?: string;
+};
+
+export type ImportSummary = {
+  id: string;
+  title: string;
+  file_name: string | null;
+  source_url: string | null;
+  status: "draft" | "analyzing" | "needs_review" | "approved" | "archived" | "discarded";
+  total_rows: number;
+  created_at: string;
+  updated_at: string | null;
 };

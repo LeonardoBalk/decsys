@@ -1,78 +1,60 @@
-import { ChangeEvent, FormEvent, useEffect, useState } from "react";
+import Link from "next/link";
+import { ChangeEvent, FormEvent, useCallback, useEffect, useMemo, useState } from "react";
 import styles from "../../page.module.css";
 import { Indicator, SourceProfile } from "@/lib/types/importacao";
 import { importErrorMessage } from "@/lib/import-error-message";
+import { isAnnualPeriodColumn, isMunicipalityColumn, isPeriodColumn, municipalityColumnsFirst, normalizedColumnName, suggestedField, suggestedMunicipalityName, suggestedPeriodColumn } from "@/lib/municipal-columns";
+import { effectiveGranularity, frequencyGranularity, isPeriodSelectionComplete, PeriodGranularity, periodRequest, PeriodSelection, suggestedPeriod } from "@/lib/period-selection";
+import { expandedSheetGranularity, isExpandedPeriodSheet, periodMeasureGroups } from "@/lib/period-measures";
 import { StatusNotice } from "../status-notice";
+import { ValidationIssue, ValidationIssueList } from "./lista-pendencias";
+import { MunicipalityLookup } from "./localizar-municipios";
+import { PeriodColumnsPreparation, PreparedPeriodFields } from "./preparar-mensal";
+import { PeriodFields } from "./campos-periodo";
 
-type MunicipalApprovalProps = { importId: string; sourceProfile: SourceProfile };
-type ValidationIssue = { severity: string; row_number: number | null; field: string | null; message: string };
-type MunicipalitySuggestion = { ibge_code: string; name: string; state: string };
-type MunicipalityMatch = { row_number: number; original_name: string; status: "matched" | "unmatched" | "ambiguous"; suggestion: MunicipalitySuggestion | null; candidates: MunicipalitySuggestion[] };
+type MunicipalApprovalProps = { importId: string; sourceProfile: SourceProfile; onSheetCreated: (sheetName: string) => void };
+type ColumnMapping = { municipalityField: string; valueField: string };
+type RowProblem = { row_number: number; value: string };
+type ApprovalSummary = { approved_rows: number; period_problem_count: number; period_problems: RowProblem[]; value_problem_count: number; value_problems: RowProblem[]; municipality_problem_count?: number; municipality_problems?: RowProblem[] };
 
-function normalizedColumnName(columnName: string) {
-  return columnName.normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase();
+const PREPARED_MUNICIPALITY_FIELD = "municipality_ibge_code";
+const NOT_MUNICIPAL = "__not_municipal__";
+const NEW_INDICATOR = "__new_indicator__";
+
+function suggestedMapping(sourceProfile: SourceProfile): ColumnMapping {
+  if (isExpandedPeriodSheet(sourceProfile)) return { municipalityField: PREPARED_MUNICIPALITY_FIELD, valueField: "value" };
+  return { municipalityField: suggestedField(sourceProfile, "municipality_code"), valueField: suggestedField(sourceProfile, "value") };
 }
 
-function isPeriodColumn(columnName: string) {
-  return /(?:janeiro|fevereiro|marco|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)_20\d{2}/.test(normalizedColumnName(columnName));
+function initialPeriod(sourceProfile: SourceProfile): PeriodSelection {
+  const suggestion = suggestedPeriod(sourceProfile);
+  return isExpandedPeriodSheet(sourceProfile) ? { ...suggestion, mode: "prepared" } : suggestion;
 }
 
-function hasSourceColumn(sourceProfile: SourceProfile, columnName: string | undefined) {
-  return Boolean(columnName && sourceProfile.columns.some((column) => column.name === columnName));
+function initialPreparedGranularity(sourceProfile: SourceProfile): PeriodGranularity | null {
+  return isExpandedPeriodSheet(sourceProfile) ? expandedSheetGranularity(sourceProfile) : null;
 }
 
-function isMunicipalityColumn(columnName: string) {
-  return /(?:^|_)(?:municipio|municipios|municipality|ibge|cod_mun|codigo_municipal)(?:_|$)/.test(normalizedColumnName(columnName));
+function sameUnit(first: string, second: string) {
+  return normalizedColumnName(first).replace(/\s+/g, "") === normalizedColumnName(second).replace(/\s+/g, "");
 }
 
-function suggestedMunicipalityName(sourceProfile: SourceProfile) {
-  const suggestedName = sourceProfile.suggestions.municipality_name;
-  if (hasSourceColumn(sourceProfile, suggestedName)) return suggestedName ?? "";
-  const suggestedCode = sourceProfile.suggestions.municipality_code;
-  if (hasSourceColumn(sourceProfile, suggestedCode)) return suggestedCode ?? "";
-  return sourceProfile.columns.find((column) => /(?:^|_)(?:municipio|municipios|nome_municipio)(?:_|$)/.test(normalizedColumnName(column.name)))?.name ?? "";
+function problemSummary(count: number, problems: RowProblem[], description: string) {
+  if (!count) return "";
+  const examples = problems.slice(0, 3).map((problem) => `linha ${problem.row_number}: “${problem.value || "vazio"}”`).join("; ");
+  return `${count.toLocaleString("pt-BR")} linhas ${description}${examples ? ` (ex.: ${examples})` : ""}.`;
 }
 
-function suggestedPeriodColumn(sourceProfile: SourceProfile, suggestedField: string | undefined) {
-  const monthlyColumns = sourceProfile.columns.filter((column) => isPeriodColumn(column.name));
-  return monthlyColumns.find((column) => column.name === suggestedField)?.name ?? "";
-}
-
-export function MunicipalApproval({ importId, sourceProfile }: MunicipalApprovalProps) {
-  const recommendedIndicator = sourceProfile.indicator_recommendations?.[0];
-  const monthlyColumns = sourceProfile.columns.filter((column) => isPeriodColumn(column.name));
-  const municipalityColumns = sourceProfile.columns.filter((column) => isMunicipalityColumn(column.name));
+function useIndicatorCatalog() {
   const [indicators, setIndicators] = useState<Indicator[]>([]);
-  const [isLoadingIndicators, setIsLoadingIndicators] = useState(true);
-  const [indicatorLoadMessage, setIndicatorLoadMessage] = useState("");
-  const [indicatorLoadAttempt, setIndicatorLoadAttempt] = useState(0);
-  const [indicatorId, setIndicatorId] = useState("");
-  const [municipalityField, setMunicipalityField] = useState("");
-  const [municipalitySourceField, setMunicipalitySourceField] = useState("");
-  const [municipalityMatches, setMunicipalityMatches] = useState<MunicipalityMatch[]>([]);
-  const [isFindingMunicipalities, setIsFindingMunicipalities] = useState(false);
-  const [isApplyingMunicipalities, setIsApplyingMunicipalities] = useState(false);
-  const [municipalityMatchMessage, setMunicipalityMatchMessage] = useState("");
-  const [municipalityMatchMessageKind, setMunicipalityMatchMessageKind] = useState<"error" | "success">("error");
-  const [yearField, setYearField] = useState("");
-  const [valueField, setValueField] = useState("");
-  const [unit, setUnit] = useState("");
-  const [isApproving, setIsApproving] = useState(false);
-  const [resultMessage, setResultMessage] = useState("");
-  const [resultMessageKind, setResultMessageKind] = useState<"error" | "success">("error");
-  const [validationIssues, setValidationIssues] = useState<ValidationIssue[]>([]);
-  const [approvedRows, setApprovedRows] = useState<number | null>(null);
-  const [wideMeasureField, setWideMeasureField] = useState("");
-  const [hasPreparedMunicipalityCodes, setHasPreparedMunicipalityCodes] = useState(false);
-  const [hasPreparedMonthlyValues, setHasPreparedMonthlyValues] = useState(false);
-  const [isNormalizing, setIsNormalizing] = useState(false);
-  const [normalizationMessage, setNormalizationMessage] = useState("");
-  const [normalizationMessageKind, setNormalizationMessageKind] = useState<"error" | "success">("error");
+  const [isLoading, setIsLoading] = useState(true);
+  const [loadMessage, setLoadMessage] = useState("");
+  const [loadAttempt, setLoadAttempt] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
-    setIsLoadingIndicators(true);
-    setIndicatorLoadMessage("");
+    setIsLoading(true);
+    setLoadMessage("");
     fetch("/api/indicators", { cache: "no-store" })
       .then(async (response) => {
         if (!response.ok) throw new Error(await importErrorMessage(response, "Não foi possível carregar a lista de indicadores."));
@@ -80,108 +62,104 @@ export function MunicipalApproval({ importId, sourceProfile }: MunicipalApproval
         if (!Array.isArray(payload)) throw new Error("A lista de indicadores veio em um formato inesperado. Tente carregar novamente.");
         return payload as Indicator[];
       })
-      .then((indicatorList) => {
-        if (cancelled) return;
-        setIndicators(indicatorList);
-      })
-      .catch((loadError: unknown) => {
-        if (cancelled) return;
-        setIndicatorLoadMessage(loadError instanceof Error ? loadError.message : "Não conseguimos carregar os indicadores. Tente novamente.");
-      })
-      .finally(() => {
-        if (!cancelled) setIsLoadingIndicators(false);
-      });
+      .then((indicatorList) => { if (!cancelled) setIndicators(indicatorList); })
+      .catch((loadError: unknown) => { if (!cancelled) setLoadMessage(loadError instanceof Error ? loadError.message : "Não conseguimos carregar os indicadores. Tente novamente."); })
+      .finally(() => { if (!cancelled) setIsLoading(false); });
     return () => { cancelled = true; };
-  }, [indicatorLoadAttempt]);
+  }, [loadAttempt]);
+
+  const retry = useCallback(() => setLoadAttempt((attempt) => attempt + 1), []);
+  return { indicators, isLoading, loadMessage, retry };
+}
+
+export function MunicipalApproval({ importId, sourceProfile, onSheetCreated }: MunicipalApprovalProps) {
+  const recommendedIndicator = sourceProfile.indicator_recommendations?.[0];
+  const monthlyColumns = sourceProfile.columns.filter((column) => isPeriodColumn(column.name));
+  const annualColumns = sourceProfile.columns.filter((column) => isAnnualPeriodColumn(column.name));
+  const measureGroups = useMemo(() => periodMeasureGroups(sourceProfile), [sourceProfile]);
+  const isExpandedSheet = isExpandedPeriodSheet(sourceProfile);
+  const orderedColumns = municipalityColumnsFirst(sourceProfile);
+  const hasRecognizedMunicipality = sourceProfile.columns.some((column) => isMunicipalityColumn(column.name));
+  const { indicators, isLoading: isLoadingIndicators, loadMessage: indicatorLoadMessage, retry: retryIndicators } = useIndicatorCatalog();
+  const [isWaitingForNewIndicator, setIsWaitingForNewIndicator] = useState(false);
+  const [indicatorId, setIndicatorId] = useState("");
+  const [unit, setUnit] = useState("");
+  const [mapping, setMapping] = useState<ColumnMapping>(() => suggestedMapping(sourceProfile));
+  const [period, setPeriod] = useState<PeriodSelection>(() => initialPeriod(sourceProfile));
+  const [preparedGranularity, setPreparedGranularity] = useState<PeriodGranularity | null>(() => initialPreparedGranularity(sourceProfile));
+  const [hasPreparedMunicipalityCode, setHasPreparedMunicipalityCode] = useState(() => isExpandedPeriodSheet(sourceProfile));
+  const [isApproving, setIsApproving] = useState(false);
+  const [resultMessage, setResultMessage] = useState("");
+  const [resultMessageKind, setResultMessageKind] = useState<"error" | "success">("error");
+  const [validationIssues, setValidationIssues] = useState<ValidationIssue[]>([]);
+  const [approvalSummary, setApprovalSummary] = useState<ApprovalSummary | null>(null);
 
   useEffect(() => {
-    const availableFields = new Set(sourceProfile.columns.map((column) => column.name));
     setIndicatorId("");
     setUnit("");
-    setMunicipalityField(availableFields.has(sourceProfile.suggestions.municipality_code ?? "") ? sourceProfile.suggestions.municipality_code ?? "" : "");
-    setMunicipalitySourceField(suggestedMunicipalityName(sourceProfile));
-    setYearField(availableFields.has(sourceProfile.suggestions.reference_year ?? "") ? sourceProfile.suggestions.reference_year ?? "" : "");
-    setValueField(availableFields.has(sourceProfile.suggestions.value ?? "") ? sourceProfile.suggestions.value ?? "" : "");
-    setWideMeasureField(suggestedPeriodColumn(sourceProfile, recommendedIndicator?.value_field));
-    setMunicipalityMatches([]);
-    setMunicipalityMatchMessage("");
-    setHasPreparedMunicipalityCodes(false);
-    setHasPreparedMonthlyValues(false);
+    setMapping(suggestedMapping(sourceProfile));
+    setPeriod(initialPeriod(sourceProfile));
+    setPreparedGranularity(initialPreparedGranularity(sourceProfile));
+    setHasPreparedMunicipalityCode(isExpandedPeriodSheet(sourceProfile));
+    setValidationIssues([]);
+    setResultMessage("");
+    setApprovalSummary(null);
   }, [importId, sourceProfile]);
+
+  useEffect(() => {
+    if (!isWaitingForNewIndicator) return;
+    function reloadAfterNewIndicator() {
+      if (document.visibilityState !== "visible") return;
+      setIsWaitingForNewIndicator(false);
+      retryIndicators();
+    }
+    document.addEventListener("visibilitychange", reloadAfterNewIndicator);
+    return () => document.removeEventListener("visibilitychange", reloadAfterNewIndicator);
+  }, [isWaitingForNewIndicator, retryIndicators]);
+
+  const selectedIndicator = indicators.find((indicator) => indicator.id === indicatorId);
+  const isNotMunicipal = mapping.municipalityField === NOT_MUNICIPAL;
+  const granularity = effectiveGranularity(period, preparedGranularity);
+  const indicatorGranularity = frequencyGranularity(selectedIndicator?.expected_frequency);
+  const fieldLabels: Record<string, string> = { reference_year: "período", value: `valor (${mapping.valueField || "coluna escolhida"})`, [mapping.municipalityField]: "município" };
+
+  function updateMapping(fieldName: keyof ColumnMapping, fieldValue: string) {
+    setMapping((currentMapping) => ({ ...currentMapping, [fieldName]: fieldValue }));
+  }
 
   function selectIndicator(event: ChangeEvent<HTMLSelectElement>) {
     const selectedId = event.target.value;
+    if (selectedId === NEW_INDICATOR) {
+      setIsWaitingForNewIndicator(true);
+      window.open("/indicadores/novo", "_blank", "noopener");
+      return;
+    }
     setIndicatorId(selectedId);
-    const selectedIndicator = indicators.find((indicator) => indicator.id === selectedId);
-    if (selectedIndicator) setUnit(selectedIndicator.unit);
+    const chosenIndicator = indicators.find((indicator) => indicator.id === selectedId);
+    if (!chosenIndicator) return;
+    setUnit(chosenIndicator.unit);
+    const chosenGranularity = frequencyGranularity(chosenIndicator.expected_frequency);
+    if (chosenGranularity && (period.mode === "date_column" || period.mode === "fixed")) setPeriod((currentPeriod) => ({ ...currentPeriod, granularity: chosenGranularity }));
   }
 
-  async function findMunicipalityMatches() {
-    setIsFindingMunicipalities(true);
-    setMunicipalityMatchMessage("");
-    setMunicipalityMatches([]);
-    try {
-      const response = await fetch(`/api/imports/${importId}/municipality-matches`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ municipality_field: municipalitySourceField, sheet_name: sourceProfile.selected_sheet }), cache: "no-store" });
-      if (!response.ok) throw new Error(await importErrorMessage(response, "Não conseguimos consultar os códigos oficiais do IBGE."));
-      const payload = await response.json();
-      setMunicipalityMatches(payload.matches);
-      if (!payload.matched_count) {
-        setMunicipalityMatchMessageKind("error");
-        setMunicipalityMatchMessage("Não encontramos correspondências exatas. Confira se os nomes incluem a sigla da UF entre parênteses, por exemplo: Campinas (SP). Nenhum dado foi alterado.");
-      }
-    } catch (lookupError) {
-      setMunicipalityMatchMessageKind("error");
-      setMunicipalityMatchMessage(lookupError instanceof Error ? lookupError.message : "Não foi possível consultar o catálogo do IBGE.");
-    } finally {
-      setIsFindingMunicipalities(false);
-    }
+  function applyPreparedMunicipalityCodes(municipalityField: string) {
+    updateMapping("municipalityField", municipalityField);
+    setHasPreparedMunicipalityCode(true);
   }
 
-  async function applyMunicipalityMatches() {
-    const confirmedMatches = municipalityMatches.filter((match) => match.status === "matched" && match.suggestion);
-    if (!confirmedMatches.length) return;
-    setIsApplyingMunicipalities(true);
-    setMunicipalityMatchMessage("");
-    try {
-      const response = await fetch(`/api/imports/${importId}/apply-municipality-matches`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ municipality_field: municipalitySourceField, sheet_name: sourceProfile.selected_sheet, matches: confirmedMatches.map((match) => ({ row_number: match.row_number, ibge_code: match.suggestion?.ibge_code })) }) });
-      if (!response.ok) throw new Error(await importErrorMessage(response, "Não conseguimos salvar os códigos confirmados."));
-      const payload = await response.json();
-      setMunicipalityField(payload.municipality_field);
-      setMunicipalityMatchMessageKind("success");
-      setMunicipalityMatchMessage(`${payload.applied_count.toLocaleString("pt-BR")} códigos foram preparados. O texto original da planilha foi mantido; agora você pode revisar o ano, o valor e o indicador antes de gravar.`);
-      setHasPreparedMunicipalityCodes(true);
-    } catch (applyError) {
-      setMunicipalityMatchMessageKind("error");
-      setMunicipalityMatchMessage(applyError instanceof Error ? applyError.message : "Não foi possível preparar os códigos municipais.");
-    } finally {
-      setIsApplyingMunicipalities(false);
-    }
+  function applyPreparedPeriodColumns(fields: PreparedPeriodFields) {
+    setMapping({ municipalityField: fields.municipality_field, valueField: fields.value_field });
+    setHasPreparedMunicipalityCode(true);
+    setPreparedGranularity(fields.granularity);
+    setPeriod((currentPeriod) => ({ ...currentPeriod, mode: "prepared" }));
   }
 
-  async function normalizeWideTable() {
-    setIsNormalizing(true);
-    setNormalizationMessage("");
-    try {
-      const response = await fetch(`/api/imports/${importId}/normalize-municipal-wide`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ municipality_field: municipalityField, value_field: wideMeasureField, sheet_name: sourceProfile.selected_sheet }) });
-      if (!response.ok) {
-        setNormalizationMessageKind("error");
-        setNormalizationMessage(await importErrorMessage(response, "Não conseguimos preparar os registros desta coluna."));
-      }
-      else {
-        const payload = await response.json();
-        setMunicipalityField(payload.municipality_field);
-        setYearField(payload.year_field);
-        setValueField(payload.value_field);
-        setHasPreparedMonthlyValues(true);
-        setNormalizationMessageKind("success");
-        setNormalizationMessage(`${payload.transformed_rows.toLocaleString("pt-BR")} registros foram preparados para ${new Date(`${payload.reference_period}T12:00:00`).toLocaleDateString("pt-BR", { month: "long", year: "numeric" })}. ${payload.skipped_rows ? `${payload.skipped_rows.toLocaleString("pt-BR")} linhas sem código IBGE ou valor ficaram fora.` : ""}`);
-      }
-    } catch {
-      setNormalizationMessageKind("error");
-      setNormalizationMessage("Não foi possível acessar o serviço de tratamento.");
-    } finally {
-      setIsNormalizing(false);
-    }
+  async function loadValidationIssues() {
+    const issuesResponse = await fetch(`/api/imports/${encodeURIComponent(importId)}/validation-issues`, { cache: "no-store" });
+    if (!issuesResponse.ok) return { issues: [] as ValidationIssue[], error: await importErrorMessage(issuesResponse, "A verificação terminou, mas não conseguimos mostrar as linhas pendentes.") };
+    const issuesPayload: unknown = await issuesResponse.json();
+    if (!Array.isArray(issuesPayload)) return { issues: [] as ValidationIssue[], error: "Os dados foram verificados, mas a lista de pendências veio em um formato inesperado. Atualize a página para tentar carregar novamente." };
+    return { issues: issuesPayload as ValidationIssue[], error: "" };
   }
 
   async function submitApproval(event: FormEvent<HTMLFormElement>) {
@@ -189,33 +167,23 @@ export function MunicipalApproval({ importId, sourceProfile }: MunicipalApproval
     setIsApproving(true);
     setResultMessage("");
     try {
-      const response = await fetch(`/api/imports/${importId}/approve-municipal`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ indicator_id: indicatorId, municipality_field: municipalityField, year_field: yearField, value_field: valueField, unit, sheet_name: sourceProfile.selected_sheet }) });
+      const response = await fetch(`/api/imports/${encodeURIComponent(importId)}/approve-municipal`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ indicator_id: indicatorId, municipality_field: mapping.municipalityField, value_field: mapping.valueField, unit, sheet_name: sourceProfile.selected_sheet, period: periodRequest(period) }) });
       if (!response.ok) {
         setResultMessageKind("error");
         setResultMessage(await importErrorMessage(response, "Não foi possível gravar os dados. Confira os campos escolhidos e tente novamente."));
+        return;
       }
-      else {
-        const payload = await response.json();
-        const issuesResponse = await fetch(`/api/imports/${importId}/validation-issues`, { cache: "no-store" });
-        if (issuesResponse.ok) {
-          const issuesPayload: unknown = await issuesResponse.json();
-          if (Array.isArray(issuesPayload)) setValidationIssues(issuesPayload);
-          else {
-            setResultMessageKind("error");
-            setResultMessage("Os dados foram verificados, mas a lista de pendências veio em um formato inesperado. Atualize a página para tentar carregar novamente.");
-          }
-        } else {
-          setResultMessageKind("error");
-          setResultMessage(await importErrorMessage(issuesResponse, "A verificação terminou, mas não conseguimos mostrar as linhas pendentes."));
-        }
-        if (payload.approved_rows > 0) {
-          setApprovedRows(payload.approved_rows);
-          if (!issuesResponse.ok) setResultMessageKind("error");
-          else setResultMessageKind("success");
-        } else {
-          setResultMessageKind("error");
-          if (issuesResponse.ok) setResultMessage("Nenhuma linha foi gravada. Veja as pendências, corrija a origem ou as colunas escolhidas e tente novamente.");
-        }
+      const payload: ApprovalSummary = await response.json();
+      const { issues, error } = await loadValidationIssues();
+      setValidationIssues(issues);
+      const preparationNotes = [problemSummary(payload.municipality_problem_count ?? 0, payload.municipality_problems ?? [], "sem código IBGE reconhecido (use o quadro de municípios para nomes)"), problemSummary(payload.period_problem_count, payload.period_problems, "sem período reconhecido"), problemSummary(payload.value_problem_count, payload.value_problems, "com valor que não é número")].filter(Boolean).join(" ");
+      if (payload.approved_rows > 0) {
+        setApprovalSummary(payload);
+        setResultMessageKind("error");
+        setResultMessage([error, preparationNotes].filter(Boolean).join(" "));
+      } else {
+        setResultMessageKind("error");
+        setResultMessage(error || `Nenhuma linha foi gravada. ${preparationNotes || "Veja as pendências, corrija a origem ou as colunas escolhidas e tente novamente."}`);
       }
     } catch {
       setResultMessageKind("error");
@@ -225,47 +193,52 @@ export function MunicipalApproval({ importId, sourceProfile }: MunicipalApproval
     }
   }
 
-  if (approvedRows !== null) return <section className={styles.analysisPanel}><h2>Dados gravados no painel municipal</h2><StatusNotice variant="success" title={`${approvedRows.toLocaleString("pt-BR")} linhas válidas gravadas.`}>{validationIssues.length ? `${validationIssues.length.toLocaleString("pt-BR")} linhas precisam de revisão.` : "Todas as linhas selecionadas passaram pela validação."}</StatusNotice>{resultMessage ? <StatusNotice variant={resultMessageKind}>{resultMessage}</StatusNotice> : null}{validationIssues.length ? <><h3 className={styles.issueHeading}>Linhas para revisar</h3><ul className={styles.validationIssueList}>{validationIssues.slice(0, 20).map((validationIssue, issuePosition) => <li key={`${validationIssue.row_number}-${validationIssue.field}-${issuePosition}`}><strong>{validationIssue.row_number ? `Linha ${validationIssue.row_number}` : "Arquivo"}{validationIssue.field ? ` · ${validationIssue.field}` : ""}:</strong> {validationIssue.message}</li>)}</ul></> : null}{validationIssues.length > 20 ? <p className={styles.profileGuidance}>Exibindo 20 de {validationIssues.length.toLocaleString("pt-BR")} pendências.</p> : null}</section>;
+  if (approvalSummary) return <section className={styles.analysisPanel}>
+    <h2>Dados gravados no painel municipal</h2>
+    <StatusNotice variant="success" title={`${approvalSummary.approved_rows.toLocaleString("pt-BR")} linhas válidas gravadas.`}>{validationIssues.length ? `${validationIssues.length.toLocaleString("pt-BR")} pendências impediram outras linhas de entrar na gravação.` : "Todas as linhas selecionadas passaram pela validação."}</StatusNotice>
+    {resultMessage ? <StatusNotice variant="warning">{resultMessage}</StatusNotice> : null}
+    <ValidationIssueList fieldLabels={fieldLabels} issues={validationIssues} />
+    <div className={styles.completionActions}>
+      <Link className={styles.primaryLink} href="/dados-revisados">Ver dados revisados</Link>
+      <Link className={styles.secondaryLink} href="/">Nova importação</Link>
+      <Link className={styles.secondaryLink} href="/importacoes">Importações salvas</Link>
+      <button onClick={() => { setApprovalSummary(null); setResultMessage(""); }} type="button">Gravar outro indicador desta aba</button>
+    </div>
+  </section>;
+
+  const canSubmit = !isApproving && Boolean(indicatorId) && !isNotMunicipal && Boolean(mapping.municipalityField) && Boolean(mapping.valueField) && Boolean(unit.trim()) && isPeriodSelectionComplete(period);
 
   return <section className={styles.analysisPanel}>
     <h2>Gravar no painel municipal</h2>
     <p className={styles.profileGuidance}>Associe as colunas a um indicador já cadastrado. O catálogo de indicadores fica em uma área própria para não misturar cadastro com importação.</p>
-    {!municipalityColumns.length ? <StatusNotice variant="warning" title="Esta aba não identifica municípios">Não encontramos uma coluna de código IBGE ou nome de município. Você ainda pode manter o arquivo para revisão ou exportá-lo, mas esta aba não pode ser gravada no painel municipal.</StatusNotice> : <>
-    <div className={styles.municipalPreparation}>
-    {monthlyColumns.length ? <section className={styles.processHint}>
-      <strong>Planilha com períodos nas colunas</strong>
-      <p>Esta fonte organiza cada mês em uma coluna. Escolha um indicador mensal para transformá-lo em registros de município, período e valor antes da aprovação.</p>
-      <label>Coluna do indicador mensal<select onChange={(event) => setWideMeasureField(event.target.value)} value={wideMeasureField}><option value="">Selecione uma coluna</option>{monthlyColumns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}</select></label>
-      {isNormalizing ? <StatusNotice variant="loading">Preparando os valores mensais para revisão.</StatusNotice> : null}
-      {normalizationMessage ? <StatusNotice variant={normalizationMessageKind}>{normalizationMessage}</StatusNotice> : null}
-      {hasPreparedMonthlyValues ? <p className={styles.fieldNote}>Os valores mensais desta aba já foram preparados. Revise o mapeamento abaixo antes de gravar.</p> : null}
-      <button disabled={isNormalizing || !municipalityField || municipalityField === "municipality_ibge_code" || !wideMeasureField} onClick={normalizeWideTable} type="button">{isNormalizing ? "Transformando..." : "Preparar registros mensais"}</button>
-    </section> : null}
-    <section className={styles.processHint}>
-      <strong>Localizar códigos de município</strong>
-      <p>Se a planilha traz nomes como “Campinas (SP)” em vez do código IBGE, o Decsys pode comparar os nomes e a UF com o catálogo oficial. A consulta não altera a planilha; os códigos só são preparados depois da sua confirmação.</p>
-      <label>Coluna com o município<select onChange={(event) => { setMunicipalitySourceField(event.target.value); setMunicipalityMatches([]); setMunicipalityMatchMessage(""); }} value={municipalitySourceField}><option value="">Selecione uma coluna</option>{municipalityColumns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}</select></label>
-      <button disabled={isFindingMunicipalities || isApplyingMunicipalities || !municipalitySourceField} onClick={findMunicipalityMatches} type="button">{isFindingMunicipalities ? "Consultando IBGE..." : "Buscar correspondências no IBGE"}</button>
-      {isFindingMunicipalities ? <StatusNotice variant="loading">Consultando a lista oficial de municípios do IBGE e comparando nome e UF.</StatusNotice> : null}
-      {municipalityMatchMessage ? <StatusNotice variant={municipalityMatchMessageKind}>{municipalityMatchMessage}</StatusNotice> : null}
-      {municipalityMatches.length ? <><p className={styles.fieldNote}>{municipalityMatches.filter((match) => match.status === "matched").length.toLocaleString("pt-BR")} correspondências exatas; {municipalityMatches.filter((match) => match.status !== "matched").length.toLocaleString("pt-BR")} sem correspondência única. Não fazemos aproximação por nomes parecidos.</p><div className={styles.tableWrap}><table><thead><tr><th>Linha</th><th>Nome na planilha</th><th>Código IBGE sugerido</th><th>Resultado</th></tr></thead><tbody>{municipalityMatches.slice(0, 100).map((match) => <tr key={match.row_number}><td>{match.row_number}</td><td>{match.original_name || "—"}</td><td>{match.suggestion ? `${match.suggestion.ibge_code} · ${match.suggestion.name} (${match.suggestion.state})` : "—"}</td><td>{match.status === "matched" ? "Correspondência exata" : match.status === "ambiguous" ? "Mais de uma opção" : "Revisão manual"}</td></tr>)}</tbody></table></div>{municipalityMatches.length > 100 ? <p className={styles.fieldNote}>Exibindo 100 de {municipalityMatches.length.toLocaleString("pt-BR")} linhas. A confirmação considera todas as correspondências exatas únicas.</p> : null}<button disabled={isApplyingMunicipalities || isFindingMunicipalities || !municipalityMatches.some((match) => match.status === "matched")} onClick={applyMunicipalityMatches} type="button">{isApplyingMunicipalities ? "Preparando códigos..." : `Confirmar e preparar ${municipalityMatches.filter((match) => match.status === "matched").length.toLocaleString("pt-BR")} códigos`}</button>{isApplyingMunicipalities ? <StatusNotice variant="loading">Validando os códigos no IBGE e preparando as linhas selecionadas.</StatusNotice> : null}</> : null}
-    </section>
-    </div>
+    {!hasRecognizedMunicipality ? <StatusNotice variant="info" title="Não reconhecemos a coluna de município">Nenhum título de coluna parece indicar município ou código IBGE. Se a aba tiver essa informação com outro nome, escolha a coluna manualmente abaixo. Se a planilha não for por município, marque essa opção no formulário.</StatusNotice> : null}
+    {isExpandedSheet ? <StatusNotice variant="info" title="Aba criada pelo Decsys">Cada linha desta aba é um município em um período, gerada a partir das colunas de período da aba original. Município, período e valor já estão preparados; escolha o indicador e confira a unidade.</StatusNotice> : null}
+    {!isNotMunicipal ? <div className={styles.municipalPreparation}>
+      <MunicipalityLookup columns={orderedColumns} importId={importId} initialField={suggestedMunicipalityName(sourceProfile)} onPrepared={applyPreparedMunicipalityCodes} sheetName={sourceProfile.selected_sheet} />
+      {!isExpandedSheet && (monthlyColumns.length || annualColumns.length) ? <PeriodColumnsPreparation annualColumns={annualColumns} importId={importId} initialMeasureField={suggestedPeriodColumn(sourceProfile, recommendedIndicator?.value_field)} measureGroups={measureGroups} monthlyColumns={monthlyColumns} municipalityField={mapping.municipalityField === NOT_MUNICIPAL ? "" : mapping.municipalityField} onPrepared={applyPreparedPeriodColumns} onSheetCreated={onSheetCreated} sheetName={sourceProfile.selected_sheet} /> : null}
+    </div> : null}
     {sourceProfile.indicator_recommendations?.length ? <div className={styles.indicatorRecommendations}><p className={styles.fieldNote}>Sugestões automáticas pelo conteúdo da planilha. Confira se o indicador representa a mesma informação antes de continuar.</p>{sourceProfile.indicator_recommendations.map((recommendation) => <div className={styles.indicatorRecommendation} key={recommendation.code}><div><strong>{recommendation.name}</strong><p>{recommendation.unit} · coluna sugerida: {recommendation.value_field}</p></div></div>)}</div> : null}
     {isLoadingIndicators ? <StatusNotice variant="loading">Carregando os indicadores cadastrados.</StatusNotice> : null}
-    {indicatorLoadMessage ? <StatusNotice action={{ label: "Tentar novamente", onClick: () => setIndicatorLoadAttempt((attempt) => attempt + 1) }} variant="error">{indicatorLoadMessage}</StatusNotice> : null}
-    {!isLoadingIndicators && !indicatorLoadMessage && indicators.length === 0 ? <section className={styles.processHint}><strong>Ainda não há indicadores cadastrados</strong><p>Para enviar dados ao painel municipal, primeiro cadastre o indicador que descreve o que esta planilha mede. Você pode continuar exportando os dados sem fazer esse cadastro.</p><a className={styles.sourceLink} href="/indicadores/novo">Cadastrar primeiro indicador</a></section> : null}
-    {!isLoadingIndicators && !indicatorLoadMessage && indicators.length > 0 ? <><a className={styles.sourceLink} href="/indicadores">Ver e organizar indicadores</a><p className={styles.fieldNote}>Associe cada campo da planilha ao dado correspondente. As linhas com código de município, ano ou valor inválidos ficam fora da gravação e aparecem abaixo para revisão.</p><form className={`${styles.sourceForm} ${styles.municipalMappingGrid}`} onSubmit={submitApproval}>
-      <label>O que esta planilha mede?<select onChange={selectIndicator} required value={indicatorId}><option disabled value="">Selecione um indicador</option>{indicators.map((indicator) => <option key={indicator.id} value={indicator.id}>{indicator.name} ({indicator.code})</option>)}</select><span className={styles.fieldNote}>Escolha o indicador que melhor corresponde ao conteúdo da coluna de valor.</span></label>
-      <label>Qual coluna identifica o município?<select onChange={(event) => setMunicipalityField(event.target.value)} required value={municipalityField}><option disabled value="">Selecione uma coluna</option>{municipalityColumns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}{hasPreparedMunicipalityCodes || hasPreparedMonthlyValues ? <option value="municipality_ibge_code">Código IBGE preparado pelo Decsys</option> : null}</select><span className={styles.fieldNote}>Escolha a coluna com o código IBGE. Se a fonte traz nomes, localize os códigos no quadro acima.</span></label>
-      <label>Qual coluna informa o ano?<select onChange={(event) => setYearField(event.target.value)} required value={yearField}><option disabled value="">Selecione uma coluna</option>{sourceProfile.columns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}{hasPreparedMonthlyValues ? <option value="reference_year">Ano preparado a partir do período</option> : null}</select><span className={styles.fieldNote}>O ano precisa estar na planilha ou ter sido preparado a partir de uma coluna mensal.</span></label>
-      <label>Qual coluna contém o valor?<select onChange={(event) => setValueField(event.target.value)} required value={valueField}><option disabled value="">Selecione uma coluna</option>{sourceProfile.columns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}{hasPreparedMonthlyValues ? <option value="value">Valor preparado a partir da coluna mensal</option> : null}</select><span className={styles.fieldNote}>Escolha a medida numérica que você quer associar ao indicador.</span></label>
-      <label>Em que unidade o valor está medido?<input onChange={(event) => setUnit(event.target.value)} required value={unit} /><span className={styles.fieldNote}>Confira a unidade na fonte, por exemplo: pessoas, %, reais ou casos por 100 mil habitantes.</span></label>
-      {resultMessage ? <StatusNotice variant={resultMessageKind}>{resultMessage}</StatusNotice> : null}
-      {validationIssues.length ? <><h3 className={styles.issueHeading}>Linhas para revisar</h3><ul className={styles.validationIssueList}>{validationIssues.slice(0, 20).map((validationIssue, issuePosition) => <li key={`${validationIssue.row_number}-${validationIssue.field}-${issuePosition}`}><strong>{validationIssue.row_number ? `Linha ${validationIssue.row_number}` : "Arquivo"}{validationIssue.field ? ` · ${validationIssue.field}` : ""}:</strong> {validationIssue.message}</li>)}</ul></> : null}
-      <button className={`${styles.primaryButton} ${styles.mappingSubmit}`} disabled={isApproving || !indicatorId || !municipalityField || !yearField || !valueField || !unit} type="submit">{isApproving ? "Verificando linhas..." : "Validar e gravar no painel municipal"}</button>
-      {isApproving ? <StatusNotice variant="loading">Estamos conferindo município, ano e valor em cada linha. Planilhas grandes podem levar alguns instantes.</StatusNotice> : null}
-    </form></> : null}
-    </>}
+    {indicatorLoadMessage ? <StatusNotice action={{ label: "Tentar novamente", onClick: retryIndicators }} variant="error">{indicatorLoadMessage}</StatusNotice> : null}
+    {!isLoadingIndicators && !indicatorLoadMessage && indicators.length === 0 ? <section className={styles.processHint}><strong>Ainda não há indicadores cadastrados</strong><p>Para enviar dados ao painel municipal, primeiro cadastre o indicador que descreve o que esta planilha mede. Você pode continuar exportando os dados sem fazer esse cadastro.</p><Link className={styles.sourceLink} href="/indicadores/novo" onClick={() => setIsWaitingForNewIndicator(true)} target="_blank">Cadastrar primeiro indicador</Link></section> : null}
+    {!isLoadingIndicators && !indicatorLoadMessage && indicators.length > 0 ? <>
+      <Link className={styles.sourceLink} href="/indicadores">Ver e organizar indicadores</Link>
+      <p className={styles.fieldNote}>Associe cada campo da planilha ao dado correspondente. As linhas com município, período ou valor inválidos ficam fora da gravação e aparecem abaixo para revisão.</p>
+      <form className={`${styles.sourceForm} ${styles.municipalMappingGrid}`} onSubmit={submitApproval}>
+        <label>O que esta planilha mede?<select onChange={selectIndicator} required value={indicatorId}><option disabled value="">Selecione um indicador</option>{indicators.map((indicator) => <option key={indicator.id} value={indicator.id}>{indicator.name} ({indicator.code})</option>)}<option value={NEW_INDICATOR}>Nenhum destes — cadastrar novo indicador</option></select><span className={styles.fieldNote}>{isWaitingForNewIndicator ? "Cadastre o indicador na aba que abriu; ao voltar para esta aba, a lista é atualizada." : "Escolha o indicador que melhor corresponde ao conteúdo da coluna de valor."}</span></label>
+        <label>Qual coluna identifica o município?<select onChange={(event) => updateMapping("municipalityField", event.target.value)} required value={mapping.municipalityField}><option disabled value="">Selecione uma coluna</option>{hasPreparedMunicipalityCode ? <option value={PREPARED_MUNICIPALITY_FIELD}>Código IBGE preparado pelo Decsys</option> : null}{orderedColumns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}<option value={NOT_MUNICIPAL}>A planilha não é por município</option></select><span className={styles.fieldNote}>Escolha a coluna com o código IBGE; códigos de 6 dígitos (padrão CAGED e DATASUS) são convertidos automaticamente. Se a fonte traz nomes, localize os códigos no quadro acima.</span></label>
+        {isNotMunicipal ? <StatusNotice variant="warning" title="O painel municipal precisa de um município por linha">Dados por UF, região, bairro ou país não entram neste painel. Você ainda pode baixar a base completa no topo desta etapa e manter a importação salva para revisão.</StatusNotice> : <>
+          <PeriodFields columns={sourceProfile.columns} hasPreparedPeriod={preparedGranularity !== null} onChange={setPeriod} preparedGranularity={preparedGranularity} selection={period} />
+          <label>Qual coluna contém o valor?<select onChange={(event) => updateMapping("valueField", event.target.value)} required value={mapping.valueField}><option disabled value="">Selecione uma coluna</option>{preparedGranularity ? <option value="value">Valor preparado a partir da coluna de período</option> : null}{sourceProfile.columns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}</select><span className={styles.fieldNote}>Aceita formato brasileiro (1.234,5) e percentuais (12,5%). O símbolo % é removido; informe-o na unidade.</span></label>
+          <label>Em que unidade o valor está medido?<input onChange={(event) => setUnit(event.target.value)} required value={unit} /><span className={styles.fieldNote}>Confira a unidade na fonte, por exemplo: pessoas, %, reais ou casos por 100 mil habitantes.</span></label>
+          {selectedIndicator && indicatorGranularity && indicatorGranularity !== granularity ? <StatusNotice variant="warning" title="Periodicidade diferente do indicador">{selectedIndicator.name} está cadastrado como {indicatorGranularity === "month" ? "mensal" : "anual"}, mas o período escolhido é {granularity === "month" ? "mensal" : "anual"}. Confira se a fonte e o indicador medem a mesma coisa.</StatusNotice> : null}
+          {selectedIndicator && unit.trim() && !sameUnit(unit, selectedIndicator.unit) ? <StatusNotice variant="warning" title="Unidade diferente da cadastrada">O indicador usa “{selectedIndicator.unit}”. Os valores serão gravados como “{unit}”; painéis que comparam municípios podem misturar escalas.</StatusNotice> : null}
+        </>}
+        {resultMessage ? <StatusNotice variant={resultMessageKind}>{resultMessage}</StatusNotice> : null}
+        <ValidationIssueList fieldLabels={fieldLabels} issues={validationIssues} />
+        <button className={`${styles.primaryButton} ${styles.mappingSubmit}`} disabled={!canSubmit} type="submit">{isApproving ? "Verificando linhas..." : "Validar e gravar no painel municipal"}</button>
+        {isApproving ? <StatusNotice variant="loading">Estamos preparando período e valor e conferindo município, período e valor em cada linha. Planilhas grandes podem levar alguns instantes.</StatusNotice> : null}
+      </form>
+    </> : null}
   </section>;
 }

@@ -162,12 +162,14 @@ class ImportReadingTests(unittest.TestCase):
 
         self.assertEqual(source_table.get_column("valor").to_list(), [1.25, 2.5, None])
 
-    def test_ibge_codes_stay_seven_digit_strings_when_excel_infers_numbers(self):
-        source_table = pl.DataFrame({"Código IBGE": [3550308.0, None, 120001.0]})
+    def test_ibge_codes_become_text_without_inventing_leading_zeros(self):
+        source_table = pl.DataFrame({"Código IBGE": [3550308.0, None, 110001.0]})
 
         normalized_table = normalize_table_columns(source_table)
 
-        self.assertEqual(normalized_table.get_column("codigo_ibge").to_list(), ["3550308", None, "0120001"])
+        # Códigos de 6 dígitos (sem dígito verificador) são resolvidos pelo catálogo do IBGE na gravação;
+        # completar com zero criaria um código inexistente.
+        self.assertEqual(normalized_table.get_column("codigo_ibge").to_list(), ["3550308", None, "110001"])
 
     def test_json_rows_and_sidra_label_rows_are_readable(self):
         plain_json = json.dumps([{"municipio": "Campinas", "ano": 2024, "valor": 12.5}]).encode()

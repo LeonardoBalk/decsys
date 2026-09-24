@@ -19,6 +19,17 @@ The browser has read-only access to workspace data. Every write is executed by t
 4. Run `./iniciar-interface.ps1` in another PowerShell window.
 5. Open `http://localhost:3000`.
 
+## Checks
+
+- `npm run lint` — ESLint (Next.js rules)
+- `npm run typecheck` — generates route types and runs TypeScript
+- `npm test` — frontend unit tests (Vitest)
+- `.\.venv\Scripts\python.exe -m unittest services.ingestion.tests.test_import_reading services.ingestion.tests.test_municipality_matching services.ingestion.tests.test_import_flow services.ingestion.tests.test_period_preparation services.ingestion.tests.test_municipal_series` — ingestion service tests
+
+Uploaded and downloaded sources are limited by `MAX_SOURCE_MB` (default 200 MB). After the first reading, the ingestion service keeps the file in memory for two hours (`SOURCE_CACHE_MB`, default 1 GB), so switching sheets and saving the draft do not upload or download it again.
+
+## Entry paths
+
 The workspace supports two entry paths: a CSV, XLSX, XLS or JSON file uploaded by the team, or a public HTTPS link. A direct data link is downloaded and profiled; a page with compatible downloads presents the discovered files for selection. The original source URL remains associated with the future import.
 
 ## From imports to dashboards
