@@ -1,5 +1,7 @@
 import gzip
 import unittest
+from datetime import date
+from decimal import Decimal
 from io import BytesIO
 from unittest.mock import patch
 from zipfile import ZIP_DEFLATED, ZipFile
@@ -58,6 +60,32 @@ class SourceSizeLimitTests(unittest.TestCase):
         with patch.object(main, "maximum_source_bytes", 16):
             response = TestClient(main.app).post("/profile", files={"file": ("dados.csv", "valor\n" + "1\n" * 32, "text/csv")})
         self.assertEqual(response.status_code, 413)
+
+
+class CKANPageDiscoveryTests(unittest.TestCase):
+    @patch("services.ingestion.app.main.httpx.get")
+    def test_tag_pages_quote_multiword_ckan_filters(self, get_request):
+        get_request.return_value.json.return_value = {
+            "result": {
+                "results": [
+                    {"resources": [{"name": "baixa-renda.csv", "format": "CSV", "url": "https://dados.aneel.gov.br/baixa-renda.csv"}]}
+                ]
+            }
+        }
+
+        resources = main.discover_ckan_resources("https://dados.aneel.gov.br/dataset/?tags=baixa+renda&res_format=CSV")
+
+        self.assertEqual(resources, [{"name": "baixa-renda.csv", "url": "https://dados.aneel.gov.br/baixa-renda.csv"}])
+        self.assertEqual(get_request.call_args.kwargs["params"], {"fq": 'tags:"baixa renda"', "rows": 100})
+
+
+class JsonCompatibilityTests(unittest.TestCase):
+    def test_source_values_are_serializable_without_losing_date_text(self):
+        source_values = {"date": date(2026, 9, 25), "number": Decimal("123456789.0123456789"), "values": [float("nan"), {"time": date(2024, 1, 2)}]}
+
+        normalized_values = main.json_compatible_value(source_values)
+
+        self.assertEqual(normalized_values, {"date": "2026-09-25", "number": "123456789.0123456789", "values": [None, {"time": "2024-01-02"}]})
 
 
 class UploadTokenTests(unittest.TestCase):

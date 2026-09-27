@@ -1,5 +1,6 @@
 import json
 import csv
+import re
 import unittest
 from io import BytesIO
 from zipfile import ZIP_DEFLATED, ZipFile
@@ -42,6 +43,30 @@ class ImportReadingTests(unittest.TestCase):
         self.assertEqual(source_table.columns, ["codigo_ibge", "municipio", "ano", "valor"])
         self.assertEqual(source_table.height, 2)
         self.assertEqual(source_table.get_column("valor").to_list(), [1234.5, 2345.6])
+
+    def test_excel_without_dimension_reference_can_be_profiled_and_read(self):
+        workbook = Workbook()
+        worksheet = workbook.active
+        worksheet.title = "Dados"
+        worksheet.append(["codigo_ibge", "ano", "valor"])
+        worksheet.append(["3550308", 2024, 10])
+        worksheet.append(["3509502", 2024, 12])
+        workbook_buffer = BytesIO()
+        workbook.save(workbook_buffer)
+        dimensionless_buffer = BytesIO()
+        with ZipFile(BytesIO(workbook_buffer.getvalue())) as workbook_archive, ZipFile(dimensionless_buffer, "w", ZIP_DEFLATED) as dimensionless_archive:
+            for archive_entry in workbook_archive.infolist():
+                archive_content = workbook_archive.read(archive_entry.filename)
+                if archive_entry.filename == "xl/worksheets/sheet1.xml":
+                    archive_content = re.sub(rb'<dimension ref="[^"]+"\s*/>', b"", archive_content)
+                dimensionless_archive.writestr(archive_entry, archive_content)
+
+        source_content = dimensionless_buffer.getvalue()
+        self.assertEqual(main.workbook_sheets(source_content), [{"name": "Dados", "rows": 3, "columns": 3}])
+        source_table = read_table("mapbiomas.xlsx", source_content)
+
+        self.assertEqual(source_table.shape, (2, 3))
+        self.assertEqual(source_table.columns, ["codigo_ibge", "ano", "valor"])
 
     def test_excel_skips_report_titles_and_detects_numeric_text_rows(self):
         workbook = Workbook()
@@ -255,6 +280,18 @@ class ImportReadingTests(unittest.TestCase):
         self.assertEqual([(sheet["sheet_name"], sheet["selected_for_treatment"]) for sheet in sheet_records], [("Base municipal", True), ("Outra tabela", False)])
         staged_row_records = post_request.call_args_list[4].kwargs["json"]
         self.assertEqual([(row["sheet_name"], row["row_number"]) for row in staged_row_records], [("Base municipal", 1), ("Base municipal", 2), ("Outra tabela", 1)])
+
+    @patch("services.ingestion.app.main.write_import_records", return_value={"import_id": "import-id"})
+    @patch("services.ingestion.app.main.import_tables", return_value=[("Base municipal", pl.DataFrame({"codigo": ["3550308"]}))])
+    @patch("services.ingestion.app.main.resolve_sheet_name")
+    def test_importing_all_sheets_reuses_the_cached_profile_sheet(self, resolve_sheet_name, import_tables, write_import_records):
+        cached_profiles = {"Base municipal": {"selected_sheet": "Base municipal", "columns": [], "sample": []}}
+
+        main.persist_import("municipios.xlsx", self.create_workbook(), None, None, "Municípios", None, None, True, cached_profiles)
+
+        resolve_sheet_name.assert_not_called()
+        import_tables.assert_called_once_with("municipios.xlsx", unittest.mock.ANY, "Base municipal", True)
+        self.assertEqual(write_import_records.call_args.args[6], "Base municipal")
 
     def test_duplicate_and_empty_column_names_are_made_unique(self):
         source_table = read_table("dados.csv", b";Valor;Valor\nA;1;2\n")

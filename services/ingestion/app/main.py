@@ -2,6 +2,7 @@ import gzip
 import hmac
 import ipaddress
 import json
+import math
 import os
 import re
 import socket
@@ -12,9 +13,11 @@ import unicodedata
 import uuid
 import zipfile
 from decimal import Decimal, InvalidOperation
+from datetime import date, datetime, time as datetime_time
 from hashlib import sha256
 from email.message import Message
 from io import BytesIO, StringIO
+from itertools import islice
 from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import parse_qs, quote, urlencode, urljoin, urlparse, urlunparse
@@ -282,9 +285,15 @@ def discard_partial_import(source_id: str | None, import_id: str | None, storage
 
 
 def persist_import(source_name: str, source_content: bytes, source_url: str | None, dataset_id: str | None, import_title: str, reference_year: int | None, sheet_name: str | None = None, include_all_sheets: bool = False, cached_profiles: dict[str, dict[str, Any]] | None = None) -> dict[str, Any]:
-    selected_sheet = resolve_sheet_name(source_name, source_content, sheet_name)
+    selected_sheet = sheet_name
+    cached_source_profile = (cached_profiles or {}).get(selected_sheet or "")
+    if include_all_sheets and not selected_sheet and cached_profiles:
+        cached_source_profile = next((profile for profile in cached_profiles.values() if profile.get("selected_sheet")), None)
+        selected_sheet = cached_source_profile.get("selected_sheet") if cached_source_profile else None
+    if not selected_sheet:
+        selected_sheet = resolve_sheet_name(source_name, source_content, sheet_name)
     selected_tables = import_tables(source_name, source_content, selected_sheet, include_all_sheets)
-    source_profile = (cached_profiles or {}).get(selected_sheet or "")
+    source_profile = cached_source_profile or (cached_profiles or {}).get(selected_sheet or "")
     if not source_profile:
         source_profile = profile_table(source_name, source_content, source_url, "uploaded_file" if source_url is None else "remote_file", selected_sheet)
     created: dict[str, str | None] = {"source_id": None, "import_id": None, "storage_path": None}
@@ -298,7 +307,7 @@ def persist_import(source_name: str, source_content: bytes, source_url: str | No
 
 
 def write_import_records(source_name: str, source_content: bytes, source_url: str | None, dataset_id: str | None, import_title: str, reference_year: int | None, selected_sheet: str | None, selected_tables: list[tuple[str, pl.DataFrame]], source_profile: dict[str, Any], created: dict[str, str | None]) -> dict[str, Any]:
-    source_profile = {key: value for key, value in source_profile.items() if key != "upload_token"}
+    source_profile = json_compatible_value({key: value for key, value in source_profile.items() if key != "upload_token"})
     source_record = {"name": source_name, "base_url": source_url}
     source_response = httpx.post(supabase_url("/rest/v1/sources"), headers=supabase_headers("return=representation"), json=source_record, timeout=30.0)
     if not source_response.is_success:
@@ -326,7 +335,7 @@ def write_import_records(source_name: str, source_content: bytes, source_url: st
     if not storage_response.is_success:
         raise HTTPException(502, "Não foi possível guardar o arquivo original no Storage. Nada ficou gravado pela metade; tente novamente.")
     created["storage_path"] = original_storage_path
-    staged_rows = [{"import_id": import_id, "sheet_name": table_name, "row_number": row_number, "raw_row": row_values} for table_name, table in selected_tables for row_number, row_values in enumerate(table.to_dicts(), start=1)]
+    staged_rows = [{"import_id": import_id, "sheet_name": table_name, "row_number": row_number, "raw_row": json_compatible_value(row_values)} for table_name, table in selected_tables for row_number, row_values in enumerate(table.to_dicts(), start=1)]
     for start_index in range(0, len(staged_rows), 500):
         staged_response = httpx.post(supabase_url("/rest/v1/import_rows"), headers=supabase_headers(), json=staged_rows[start_index:start_index + 500], timeout=30.0)
         if not staged_response.is_success:
@@ -335,6 +344,20 @@ def write_import_records(source_name: str, source_content: bytes, source_url: st
     if not update_response.is_success:
         raise HTTPException(502, "O arquivo foi guardado, mas o caminho não pôde ser associado à importação.")
     return {"import_id": import_id, "status": "needs_review", "total_rows": sum(table.height for _, table in selected_tables), "imported_sheets": [table_name for table_name, _ in selected_tables], "profile": source_profile}
+
+
+def json_compatible_value(field_value: Any) -> Any:
+    if isinstance(field_value, (datetime, date, datetime_time)):
+        return field_value.isoformat()
+    if isinstance(field_value, Decimal):
+        return format(field_value, "f")
+    if isinstance(field_value, float) and not math.isfinite(field_value):
+        return None
+    if isinstance(field_value, dict):
+        return {str(field_name): json_compatible_value(field_value) for field_name, field_value in field_value.items()}
+    if isinstance(field_value, (list, tuple)):
+        return [json_compatible_value(value) for value in field_value]
+    return field_value
 
 
 def normalize_column(column_name: str) -> str:
@@ -597,7 +620,26 @@ def is_navigation_sheet(sheet_title: str) -> bool:
 
 def workbook_sheets(source_content: bytes) -> list[dict[str, int | str]]:
     workbook = load_workbook(BytesIO(source_content), read_only=True, data_only=True)
-    return [{"name": worksheet.title, "rows": worksheet.max_row, "columns": worksheet.max_column} for worksheet in workbook.worksheets if not is_navigation_sheet(worksheet.title) and any(any(has_cell_value(cell_value) for cell_value in row_values) for row_values in worksheet.iter_rows(values_only=True))]
+    sheet_profiles = []
+    for worksheet in workbook.worksheets:
+        if is_navigation_sheet(worksheet.title):
+            continue
+        row_count = worksheet.max_row
+        column_count = worksheet.max_column
+        if row_count is None or column_count is None:
+            row_count = 0
+            column_count = 0
+            for row_number, row_values in enumerate(worksheet.iter_rows(values_only=True), start=1):
+                populated_columns = [column_number for column_number, cell_value in enumerate(row_values, start=1) if has_cell_value(cell_value)]
+                if populated_columns:
+                    row_count = row_number
+                    column_count = max(column_count, max(populated_columns))
+            if row_count and column_count:
+                sheet_profiles.append({"name": worksheet.title, "rows": row_count, "columns": column_count})
+            continue
+        if any(any(has_cell_value(cell_value) for cell_value in row_values) for row_values in worksheet.iter_rows(values_only=True)):
+            sheet_profiles.append({"name": worksheet.title, "rows": row_count, "columns": column_count})
+    return sheet_profiles
 
 
 def has_cell_value(cell_value: Any) -> bool:
@@ -642,7 +684,8 @@ def unique_header_names(header_names: list[str]) -> list[str]:
 def infer_excel_headers(source_content: bytes, sheet_name: str) -> dict[str, Any] | None:
     workbook = load_workbook(BytesIO(source_content), read_only=True, data_only=True)
     worksheet = workbook[sheet_name]
-    sample_rows = list(worksheet.iter_rows(min_row=1, max_row=min(worksheet.max_row, 40), values_only=True))
+    sample_rows = list(islice(worksheet.iter_rows(min_row=1, max_row=min(worksheet.max_row or 40, 40), values_only=True), 40))
+    sample_column_count = max((len(row_values) for row_values in sample_rows), default=0)
     data_row_number = None
     for row_number, row_values in enumerate(sample_rows, start=1):
         populated_values = [cell_value for cell_value in row_values if has_excel_cell_value(cell_value)]
@@ -662,7 +705,7 @@ def infer_excel_headers(source_content: bytes, sheet_name: str) -> dict[str, Any
         has_following_data = any(sum(has_excel_cell_value(cell_value) for cell_value in row_values) >= 2 for row_values in data_samples)
         if not has_following_data:
             return None
-        data_columns = [column_index for column_index in range(worksheet.max_column) if any(column_index < len(row_values) and has_excel_cell_value(row_values[column_index]) for row_values in data_samples)]
+        data_columns = [column_index for column_index in range(sample_column_count) if any(column_index < len(row_values) and has_excel_cell_value(row_values[column_index]) for row_values in data_samples)]
         resolved_headers = [header_names[column_index] if column_index < len(header_names) else "" for column_index in data_columns]
         return {"header_row": header_row_index, "header_rows": [header_row_index + 1], "header_names": unique_header_names(resolved_headers)}
     if data_row_number == 1:
@@ -678,7 +721,7 @@ def infer_excel_headers(source_content: bytes, sheet_name: str) -> dict[str, Any
     data_samples = sample_rows[data_row_number - 1:min(len(sample_rows), data_row_number + 5)]
     carried_labels = ["" for _ in header_rows]
     header_names: list[str] = []
-    for column_index in range(worksheet.max_column):
+    for column_index in range(sample_column_count):
         labels: list[str] = []
         has_direct_header = False
         for level, header_row in enumerate(header_rows):
@@ -832,7 +875,7 @@ def excel_quality_warnings(source_content: bytes, sheet_name: str, source_table:
 
     workbook = load_workbook(BytesIO(source_content), read_only=True, data_only=True)
     worksheet = workbook[sheet_name]
-    title_text = " ".join(str(cell_value) for row_values in worksheet.iter_rows(min_row=1, max_row=min(worksheet.max_row, 5), values_only=True) for cell_value in row_values if has_excel_cell_value(cell_value))
+    title_text = " ".join(str(cell_value) for row_values in worksheet.iter_rows(min_row=1, max_row=min(worksheet.max_row or 5, 5), values_only=True) for cell_value in row_values if has_excel_cell_value(cell_value))
     workbook.close()
     normalized_title_text = re.sub(r"[_\W]+", " ", title_text, flags=re.UNICODE)
     expected_count_match = re.search(r"\b(\d{1,4})\s+maiores?\b", normalized_title_text, re.IGNORECASE)
@@ -950,7 +993,12 @@ def discover_ckan_resources(page_url: str) -> list[dict[str, str]]:
         elif "groups" in query_parameters or "tags" in query_parameters:
             group_name = (query_parameters.get("groups") or [None])[0]
             tag_name = (query_parameters.get("tags") or [None])[0]
-            search_response = httpx.get(f"{parsed_url.scheme}://{parsed_url.netloc}/api/3/action/package_search", params={"fq": f"groups:{group_name}" if group_name else f"tags:{tag_name}", "rows": 100}, timeout=15.0)
+            if group_name:
+                facet_filter = f"groups:{group_name}"
+            else:
+                escaped_tag = (tag_name or "").replace('"', '\\"')
+                facet_filter = f'tags:"{escaped_tag}"' if any(character.isspace() for character in escaped_tag) else f"tags:{escaped_tag}"
+            search_response = httpx.get(f"{parsed_url.scheme}://{parsed_url.netloc}/api/3/action/package_search", params={"fq": facet_filter, "rows": 100}, timeout=15.0)
             search_response.raise_for_status()
             package_records = search_response.json().get("result", {}).get("results", [])
         else:
@@ -1440,7 +1488,6 @@ def apply_municipality_matches(import_id: str, resolution: MunicipalityResolutio
 
 def upsert_staged_rows(import_id: str, sheet_name: str | None, updated_rows: list[tuple[dict[str, Any], dict[str, Any]]], failure_message: str) -> None:
     records = [{
-        "id": staged_row["id"],
         "import_id": import_id,
         "sheet_name": staged_row.get("sheet_name") or sheet_name or "Dados",
         "row_number": staged_row["row_number"],
@@ -1451,7 +1498,7 @@ def upsert_staged_rows(import_id: str, sheet_name: str | None, updated_rows: lis
         try:
             rows_response = httpx.post(
                 supabase_url("/rest/v1/import_rows"),
-                params={"on_conflict": "id"},
+                params={"on_conflict": "import_id,sheet_name,row_number"},
                 headers=supabase_headers("resolution=merge-duplicates,return=minimal"),
                 json=records[start_index:start_index + 500],
                 timeout=60.0,

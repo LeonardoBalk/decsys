@@ -79,7 +79,8 @@ class MunicipalityMatchingTests(unittest.TestCase):
         municipality_call, rows_call = post_request.call_args_list
         self.assertEqual(municipality_call.args[0], "https://supabase.test/rest/v1/rpc/register_municipalities")
         self.assertEqual(municipality_call.kwargs["json"], {"selected_municipalities": [{"ibge_code": "3509502", "name": "Campinas", "state": "SP"}]})
-        self.assertEqual(rows_call.kwargs["params"], {"on_conflict": "id"})
+        self.assertEqual(rows_call.kwargs["params"], {"on_conflict": "import_id,sheet_name,row_number"})
+        self.assertNotIn("id", rows_call.kwargs["json"][0])
         self.assertEqual(rows_call.kwargs["json"][0]["normalized_row"], {"value": "12.5", "reference_year": "2024", "municipality_ibge_code": "3509502", "municipality_code_source": "ibge_lookup"})
         self.assertEqual(rows_call.kwargs["json"][0]["sheet_name"], "Dados")
 
