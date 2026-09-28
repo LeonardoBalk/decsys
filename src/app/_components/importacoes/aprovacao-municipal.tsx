@@ -13,17 +13,18 @@ import { PeriodColumnsPreparation, PreparedPeriodFields } from "./preparar-mensa
 import { PeriodFields } from "./campos-periodo";
 
 type MunicipalApprovalProps = { importId: string; sourceProfile: SourceProfile; onSheetCreated: (sheetName: string) => void };
-type ColumnMapping = { municipalityField: string; valueField: string };
+type ColumnMapping = { municipalityField: string; valueField: string; numeratorField: string; denominatorField: string };
 type RowProblem = { row_number: number; value: string };
 type ApprovalSummary = { approved_rows: number; period_problem_count: number; period_problems: RowProblem[]; value_problem_count: number; value_problems: RowProblem[]; municipality_problem_count?: number; municipality_problems?: RowProblem[] };
+type CalculationPreview = { total_rows: number; valid_rows: number; invalid_rows: number; examples: { row_number: number; municipality: string | null; numerator: string | null; denominator: string | null; calculated_value: number | null; valid: boolean }[] };
 
 const PREPARED_MUNICIPALITY_FIELD = "municipality_ibge_code";
 const NOT_MUNICIPAL = "__not_municipal__";
 const NEW_INDICATOR = "__new_indicator__";
 
 function suggestedMapping(sourceProfile: SourceProfile): ColumnMapping {
-  if (isExpandedPeriodSheet(sourceProfile)) return { municipalityField: PREPARED_MUNICIPALITY_FIELD, valueField: "value" };
-  return { municipalityField: suggestedField(sourceProfile, "municipality_code"), valueField: suggestedField(sourceProfile, "value") };
+  if (isExpandedPeriodSheet(sourceProfile)) return { municipalityField: PREPARED_MUNICIPALITY_FIELD, valueField: "value", numeratorField: "", denominatorField: "" };
+  return { municipalityField: suggestedField(sourceProfile, "municipality_code"), valueField: suggestedField(sourceProfile, "value"), numeratorField: "", denominatorField: "" };
 }
 
 function initialPeriod(sourceProfile: SourceProfile): PeriodSelection {
@@ -93,6 +94,8 @@ export function MunicipalApproval({ importId, sourceProfile, onSheetCreated }: M
   const [resultMessageKind, setResultMessageKind] = useState<"error" | "success">("error");
   const [validationIssues, setValidationIssues] = useState<ValidationIssue[]>([]);
   const [approvalSummary, setApprovalSummary] = useState<ApprovalSummary | null>(null);
+  const [calculationPreview, setCalculationPreview] = useState<CalculationPreview | null>(null);
+  const [isLoadingCalculationPreview, setIsLoadingCalculationPreview] = useState(false);
 
   useEffect(() => {
     setIndicatorId("");
@@ -104,6 +107,7 @@ export function MunicipalApproval({ importId, sourceProfile, onSheetCreated }: M
     setValidationIssues([]);
     setResultMessage("");
     setApprovalSummary(null);
+    setCalculationPreview(null);
   }, [importId, sourceProfile]);
 
   useEffect(() => {
@@ -118,6 +122,7 @@ export function MunicipalApproval({ importId, sourceProfile, onSheetCreated }: M
   }, [isWaitingForNewIndicator, retryIndicators]);
 
   const selectedIndicator = indicators.find((indicator) => indicator.id === indicatorId);
+  const isRatioCalculation = selectedIndicator?.calculation_type === "ratio";
   const isNotMunicipal = mapping.municipalityField === NOT_MUNICIPAL;
   const granularity = effectiveGranularity(period, preparedGranularity);
   const indicatorGranularity = frequencyGranularity(selectedIndicator?.expected_frequency);
@@ -125,6 +130,7 @@ export function MunicipalApproval({ importId, sourceProfile, onSheetCreated }: M
 
   function updateMapping(fieldName: keyof ColumnMapping, fieldValue: string) {
     setMapping((currentMapping) => ({ ...currentMapping, [fieldName]: fieldValue }));
+    setCalculationPreview(null);
   }
 
   function selectIndicator(event: ChangeEvent<HTMLSelectElement>) {
@@ -135,6 +141,7 @@ export function MunicipalApproval({ importId, sourceProfile, onSheetCreated }: M
       return;
     }
     setIndicatorId(selectedId);
+    setCalculationPreview(null);
     const chosenIndicator = indicators.find((indicator) => indicator.id === selectedId);
     if (!chosenIndicator) return;
     setUnit(chosenIndicator.unit);
@@ -148,7 +155,8 @@ export function MunicipalApproval({ importId, sourceProfile, onSheetCreated }: M
   }
 
   function applyPreparedPeriodColumns(fields: PreparedPeriodFields) {
-    setMapping({ municipalityField: fields.municipality_field, valueField: fields.value_field });
+    setMapping({ municipalityField: fields.municipality_field, valueField: fields.value_field, numeratorField: "", denominatorField: "" });
+    setCalculationPreview(null);
     setHasPreparedMunicipalityCode(true);
     setPreparedGranularity(fields.granularity);
     setPeriod((currentPeriod) => ({ ...currentPeriod, mode: "prepared" }));
@@ -167,7 +175,7 @@ export function MunicipalApproval({ importId, sourceProfile, onSheetCreated }: M
     setIsApproving(true);
     setResultMessage("");
     try {
-      const response = await fetch(`/api/imports/${encodeURIComponent(importId)}/approve-municipal`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ indicator_id: indicatorId, municipality_field: mapping.municipalityField, value_field: mapping.valueField, unit, sheet_name: sourceProfile.selected_sheet, period: periodRequest(period) }) });
+      const response = await fetch(`/api/imports/${encodeURIComponent(importId)}/approve-municipal`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ indicator_id: indicatorId, municipality_field: mapping.municipalityField, value_field: isRatioCalculation ? "value" : mapping.valueField, numerator_field: mapping.numeratorField, denominator_field: mapping.denominatorField, unit, sheet_name: sourceProfile.selected_sheet, period: periodRequest(period) }) });
       if (!response.ok) {
         setResultMessageKind("error");
         setResultMessage(await importErrorMessage(response, "Não foi possível gravar os dados. Confira os campos escolhidos e tente novamente."));
@@ -193,6 +201,30 @@ export function MunicipalApproval({ importId, sourceProfile, onSheetCreated }: M
     }
   }
 
+  async function previewCalculation() {
+    if (!selectedIndicator) return;
+    setIsLoadingCalculationPreview(true);
+    setCalculationPreview(null);
+    setResultMessage("");
+    try {
+      const previewRequest = isRatioCalculation
+        ? { calculation_type: "ratio", numerator_field: mapping.numeratorField, denominator_field: mapping.denominatorField, calculation_multiplier: selectedIndicator.calculation_multiplier ?? 1 }
+        : { calculation_type: "direct", direct_field: mapping.valueField };
+      const response = await fetch(`/api/imports/${encodeURIComponent(importId)}/municipal-preview`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...previewRequest, sheet_name: sourceProfile.selected_sheet }) });
+      if (!response.ok) {
+        setResultMessageKind("error");
+        setResultMessage(await importErrorMessage(response, "Não foi possível conferir o cálculo. Confira as colunas e tente novamente."));
+        return;
+      }
+      setCalculationPreview(await response.json() as CalculationPreview);
+    } catch {
+      setResultMessageKind("error");
+      setResultMessage("Não foi possível acessar o serviço de tratamento.");
+    } finally {
+      setIsLoadingCalculationPreview(false);
+    }
+  }
+
   if (approvalSummary) return <section className={styles.analysisPanel}>
     <h2>Dados gravados no painel municipal</h2>
     <StatusNotice variant="success" title={`${approvalSummary.approved_rows.toLocaleString("pt-BR")} linhas válidas gravadas.`}>{validationIssues.length ? `${validationIssues.length.toLocaleString("pt-BR")} pendências impediram outras linhas de entrar na gravação.` : "Todas as linhas selecionadas passaram pela validação."}</StatusNotice>
@@ -206,7 +238,8 @@ export function MunicipalApproval({ importId, sourceProfile, onSheetCreated }: M
     </div>
   </section>;
 
-  const canSubmit = !isApproving && Boolean(indicatorId) && !isNotMunicipal && Boolean(mapping.municipalityField) && Boolean(mapping.valueField) && Boolean(unit.trim()) && isPeriodSelectionComplete(period);
+  const hasCalculationFields = isRatioCalculation ? Boolean(mapping.numeratorField && mapping.denominatorField && mapping.numeratorField !== mapping.denominatorField) : Boolean(mapping.valueField);
+  const canSubmit = !isApproving && !isLoadingCalculationPreview && Boolean(calculationPreview?.valid_rows) && Boolean(indicatorId) && !isNotMunicipal && Boolean(mapping.municipalityField) && hasCalculationFields && Boolean(unit.trim()) && isPeriodSelectionComplete(period);
 
   return <section className={styles.analysisPanel}>
     <h2>Gravar no painel municipal</h2>
@@ -229,10 +262,16 @@ export function MunicipalApproval({ importId, sourceProfile, onSheetCreated }: M
         <label>Qual coluna identifica o município?<select onChange={(event) => updateMapping("municipalityField", event.target.value)} required value={mapping.municipalityField}><option disabled value="">Selecione uma coluna</option>{hasPreparedMunicipalityCode ? <option value={PREPARED_MUNICIPALITY_FIELD}>Código IBGE preparado pelo Decsys</option> : null}{orderedColumns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}<option value={NOT_MUNICIPAL}>A planilha não é por município</option></select><span className={styles.fieldNote}>Escolha a coluna com o código IBGE; códigos de 6 dígitos (padrão CAGED e DATASUS) são convertidos automaticamente. Se a fonte traz nomes, localize os códigos no quadro acima.</span></label>
         {isNotMunicipal ? <StatusNotice variant="warning" title="O painel municipal precisa de um município por linha">Dados por UF, região, bairro ou país não entram neste painel. Você ainda pode baixar a base completa no topo desta etapa e manter a importação salva para revisão.</StatusNotice> : <>
           <PeriodFields columns={sourceProfile.columns} hasPreparedPeriod={preparedGranularity !== null} onChange={setPeriod} preparedGranularity={preparedGranularity} selection={period} />
-          <label>Qual coluna contém o valor?<select onChange={(event) => updateMapping("valueField", event.target.value)} required value={mapping.valueField}><option disabled value="">Selecione uma coluna</option>{preparedGranularity ? <option value="value">Valor preparado a partir da coluna de período</option> : null}{sourceProfile.columns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}</select><span className={styles.fieldNote}>Aceita formato brasileiro (1.234,5) e percentuais (12,5%). O símbolo % é removido; informe-o na unidade.</span></label>
+          {isRatioCalculation ? <>
+            <label>Coluna do numerador<select onChange={(event) => updateMapping("numeratorField", event.target.value)} required value={mapping.numeratorField}><option disabled value="">Selecione uma coluna</option>{sourceProfile.columns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}</select></label>
+            <label>Coluna do denominador<select onChange={(event) => updateMapping("denominatorField", event.target.value)} required value={mapping.denominatorField}><option disabled value="">Selecione uma coluna</option>{sourceProfile.columns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}</select><span className={styles.fieldNote}>A conta usa numerador dividido pelo denominador, multiplicado por {selectedIndicator?.calculation_multiplier ?? 1}. Linhas com denominador vazio ou zero ficam para revisao.</span></label>
+          </> : <label>Qual coluna contem o valor?<select onChange={(event) => updateMapping("valueField", event.target.value)} required value={mapping.valueField}><option disabled value="">Selecione uma coluna</option>{preparedGranularity ? <option value="value">Valor preparado a partir da coluna de periodo</option> : null}{sourceProfile.columns.map((column) => <option key={column.name} value={column.name}>{column.name}</option>)}</select><span className={styles.fieldNote}>Aceita formato brasileiro (1.234,5) e percentuais (12,5%). O simbolo % e removido; informe-o na unidade.</span></label>}
           <label>Em que unidade o valor está medido?<input onChange={(event) => setUnit(event.target.value)} required value={unit} /><span className={styles.fieldNote}>Confira a unidade na fonte, por exemplo: pessoas, %, reais ou casos por 100 mil habitantes.</span></label>
           {selectedIndicator && indicatorGranularity && indicatorGranularity !== granularity ? <StatusNotice variant="warning" title="Periodicidade diferente do indicador">{selectedIndicator.name} está cadastrado como {indicatorGranularity === "month" ? "mensal" : "anual"}, mas o período escolhido é {granularity === "month" ? "mensal" : "anual"}. Confira se a fonte e o indicador medem a mesma coisa.</StatusNotice> : null}
           {selectedIndicator && unit.trim() && !sameUnit(unit, selectedIndicator.unit) ? <StatusNotice variant="warning" title="Unidade diferente da cadastrada">O indicador usa “{selectedIndicator.unit}”. Os valores serão gravados como “{unit}”; painéis que comparam municípios podem misturar escalas.</StatusNotice> : null}
+          <button className={styles.secondaryLink} disabled={!selectedIndicator || !hasCalculationFields || isLoadingCalculationPreview || isApproving} onClick={() => void previewCalculation()} type="button">{isLoadingCalculationPreview ? "Conferindo calculo..." : "Conferir valores antes de gravar"}</button>
+          {isLoadingCalculationPreview ? <StatusNotice variant="loading">Calculando valores e contando linhas validas e pendentes nesta aba.</StatusNotice> : null}
+          {calculationPreview ? <div className={styles.calculationPreview}><div><strong>{calculationPreview.valid_rows.toLocaleString("pt-BR")}</strong><span>valores calculaveis</span><strong>{calculationPreview.invalid_rows.toLocaleString("pt-BR")}</strong><span>valores para revisar</span></div><p>{calculationPreview.total_rows.toLocaleString("pt-BR")} linhas analisadas nesta aba. A previa nao grava nem altera a planilha.</p><div className={styles.tableWrap}><table><thead><tr><th>Linha</th><th>{isRatioCalculation ? "Numerador" : "Valor da fonte"}</th>{isRatioCalculation ? <th>Denominador</th> : null}<th>Resultado</th><th>Situacao</th></tr></thead><tbody>{calculationPreview.examples.map((example) => <tr key={example.row_number}><td>{example.row_number}</td><td>{example.numerator ?? "-"}</td>{isRatioCalculation ? <td>{example.denominator ?? "-"}</td> : null}<td>{example.calculated_value === null ? "-" : new Intl.NumberFormat("pt-BR", { maximumFractionDigits: 4 }).format(example.calculated_value)}</td><td>{example.valid ? "Pronta" : "Verificar valor"}</td></tr>)}</tbody></table></div></div> : null}
         </>}
         {resultMessage ? <StatusNotice variant={resultMessageKind}>{resultMessage}</StatusNotice> : null}
         <ValidationIssueList fieldLabels={fieldLabels} issues={validationIssues} />

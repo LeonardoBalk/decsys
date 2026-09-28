@@ -1,7 +1,8 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { Search } from "lucide-react";
+import Link from "next/link";
+import { Search, SlidersHorizontal } from "lucide-react";
 import styles from "../page.module.css";
 import { StatusNotice } from "../_components/status-notice";
 import { importErrorMessage } from "@/lib/import-error-message";
@@ -134,7 +135,7 @@ export default function IiuDashboardPage() {
   const profileLabel = cityProfiles.find((profile) => profile.value === dashboard?.city_profile)?.label.split(" - ")[0] ?? dashboard?.city_profile;
 
   return <main className={styles.workspaceShell}>
-    <section className={styles.workspaceIntro}><p className={styles.eyebrow}>ÍNDICE DE INTELIGÊNCIA URBANA</p><h1>Diagnóstico IIU</h1><p>Uma leitura executiva do desempenho municipal, das lacunas de dados e dos indicadores que precisam de atenção.</p></section>
+    <section className={styles.workspaceIntro}><p className={styles.eyebrow}>ÍNDICE DE INTELIGÊNCIA URBANA</p><h1>Diagnóstico IIU</h1><p>Uma leitura executiva do desempenho municipal, das lacunas de dados e dos indicadores que precisam de atenção.</p><Link className={styles.secondaryLink} href="/iiu/configuracao"><SlidersHorizontal size={16} />Configurar pesos e referências</Link></section>
     <section className={styles.analysisPanel}>
       <div className={styles.sectionHeading}><div><h2>Escolher município</h2><span>Digite o nome e pressione Enter para pesquisar, ou informe o código IBGE para calcular direto. O porte define os pesos entre as dimensões.</span></div></div>
       <form className={styles.sourceForm} onSubmit={submitMunicipality}>

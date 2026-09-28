@@ -57,6 +57,7 @@ class MunicipalityFormatTests(unittest.TestCase):
 @patch("services.ingestion.app.main.ibge_municipality_catalog", return_value=catalog)
 @patch("services.ingestion.app.main.supabase_headers", return_value={})
 @patch("services.ingestion.app.main.supabase_url", side_effect=lambda path: f"https://supabase.test{path}")
+@patch("services.ingestion.app.main.get_indicator", return_value={"calculation_type": "direct"})
 class ApprovalOrchestrationTests(unittest.TestCase):
     @patch("services.ingestion.app.main.fetch_rows_for_municipality_resolution")
     @patch("services.ingestion.app.main.httpx.post")

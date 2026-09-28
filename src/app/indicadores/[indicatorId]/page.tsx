@@ -11,7 +11,7 @@ import { Indicator } from "@/lib/types/importacao";
 import { importErrorMessage } from "@/lib/import-error-message";
 
 function registrationFromIndicator(indicator: Indicator): IndicatorRegistration {
-  return { code: indicator.code, name: indicator.name, dimension: indicator.dimension ?? "", definition: indicator.definition ?? "", unit: indicator.unit, expected_frequency: indicator.expected_frequency ?? "" };
+  return { code: indicator.code, name: indicator.name, dimension: indicator.dimension ?? "", definition: indicator.definition ?? "", unit: indicator.unit, expected_frequency: indicator.expected_frequency ?? "", calculation_type: indicator.calculation_type ?? "direct", calculation_multiplier: String(indicator.calculation_multiplier ?? 1), iiu_enabled: indicator.iiu_enabled ?? false, iiu_dimension_code: indicator.iiu_dimension_code ?? "", score_direction: indicator.score_direction === "inverse" || indicator.score_direction === "checklist" ? indicator.score_direction : "direct", checklist_max: indicator.checklist_max === null || indicator.checklist_max === undefined ? "" : String(indicator.checklist_max) };
 }
 
 export default function EditIndicatorPage() {

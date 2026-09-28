@@ -11,6 +11,12 @@ export type Indicator = {
   dimension?: string;
   definition?: string;
   expected_frequency?: string | null;
+  calculation_type?: "direct" | "ratio";
+  calculation_multiplier?: number;
+  iiu_enabled?: boolean;
+  iiu_dimension_code?: string | null;
+  score_direction?: "direct" | "inverse" | "checklist" | null;
+  checklist_max?: number | null;
   active?: boolean;
 };
 

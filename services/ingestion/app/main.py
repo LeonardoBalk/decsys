@@ -90,9 +90,32 @@ class MunicipalApproval(BaseModel):
     municipality_field: str
     year_field: str | None = None
     value_field: str
+    numerator_field: str | None = None
+    denominator_field: str | None = None
     unit: str
     sheet_name: str | None = None
     period: PeriodSelection | None = None
+
+
+class MunicipalCalculationPreview(BaseModel):
+    calculation_type: Literal["direct", "ratio"]
+    direct_field: str = ""
+    numerator_field: str = ""
+    denominator_field: str = ""
+    calculation_multiplier: float = 1
+    sheet_name: str | None = None
+
+
+class IiuWeightsUpdate(BaseModel):
+    city_profile: Literal["pequeno", "medio", "grande", "metropole"]
+    weights: dict[str, float]
+
+
+class IiuBenchmarkUpdate(BaseModel):
+    indicator_code: str
+    city_profile: Literal["pequeno", "medio", "grande", "metropole"]
+    minimum_value: float
+    maximum_value: float
 
 
 class WideMunicipalTransform(BaseModel):
@@ -125,6 +148,12 @@ class IndicatorRegistration(BaseModel):
     definition: str
     unit: str
     expected_frequency: str | None = None
+    calculation_type: Literal["direct", "ratio"] = "direct"
+    calculation_multiplier: float = 1
+    iiu_enabled: bool = False
+    iiu_dimension_code: str | None = None
+    score_direction: Literal["direct", "inverse", "checklist"] | None = None
+    checklist_max: float | None = None
 
 
 class IndicatorUpdate(BaseModel):
@@ -133,6 +162,12 @@ class IndicatorUpdate(BaseModel):
     definition: str
     unit: str
     expected_frequency: str | None = None
+    calculation_type: Literal["direct", "ratio"] = "direct"
+    calculation_multiplier: float = 1
+    iiu_enabled: bool = False
+    iiu_dimension_code: str | None = None
+    score_direction: Literal["direct", "inverse", "checklist"] | None = None
+    checklist_max: float | None = None
 
 
 def source_too_large_error() -> HTTPException:
@@ -1035,7 +1070,7 @@ def health() -> dict[str, str]:
     return {"status": "ok"}
 
 
-indicator_fields = "id,code,name,dimension,definition,unit,expected_frequency,active"
+indicator_fields = "id,code,name,dimension,definition,unit,expected_frequency,active,calculation_type,calculation_multiplier,iiu_enabled,iiu_dimension_code,iiu_type,source_description,score_direction,checklist_max"
 
 
 indicator_registry_path = "/rest/v1/indicator_registry"
@@ -1071,7 +1106,10 @@ def get_indicator(indicator_id: str) -> dict[str, Any]:
 
 @app.patch("/indicators/{indicator_id}")
 def update_indicator(indicator_id: str, indicator: IndicatorUpdate) -> dict[str, Any]:
-    indicator_values = {"name": indicator.name.strip(), "dimension": indicator.dimension.strip(), "definition": indicator.definition.strip(), "unit": indicator.unit.strip(), "expected_frequency": indicator.expected_frequency.strip() if indicator.expected_frequency else None}
+    indicator_values = {"name": indicator.name.strip(), "dimension": indicator.dimension.strip(), "definition": indicator.definition.strip(), "unit": indicator.unit.strip(), "expected_frequency": indicator.expected_frequency.strip() if indicator.expected_frequency else None, "calculation_type": indicator.calculation_type, "calculation_multiplier": indicator.calculation_multiplier, "iiu_enabled": indicator.iiu_enabled, "iiu_dimension_code": indicator.iiu_dimension_code if indicator.iiu_enabled else None, "score_direction": indicator.score_direction if indicator.iiu_enabled else None, "checklist_max": indicator.checklist_max if indicator.iiu_enabled and indicator.score_direction == "checklist" else None}
+    if not 0 < indicator.calculation_multiplier <= 1000000:
+        raise HTTPException(422, "O multiplicador precisa ser maior que zero e menor ou igual a 1.000.000.")
+    validate_indicator_iiu_configuration(indicator.iiu_enabled, indicator.iiu_dimension_code, indicator.score_direction, indicator.checklist_max)
     if not all(indicator_values[field_name] for field_name in ("name", "dimension", "definition", "unit")):
         raise HTTPException(422, "Preencha nome, dimensão, definição e unidade.")
     indicator_response = httpx.patch(supabase_url(indicator_registry_path), params={"id": f"eq.{indicator_id}"}, headers=supabase_headers("return=representation"), json=indicator_values, timeout=30.0)
@@ -1102,6 +1140,55 @@ def list_indicator_dimensions() -> list[str]:
     if indicators_response.is_success:
         dimension_names.extend(str(record["dimension"]) for record in indicators_response.json() if record.get("dimension"))
     return list(dict.fromkeys(name.strip() for name in dimension_names if name.strip()))
+
+
+def validate_indicator_iiu_configuration(iiu_enabled: bool, dimension_code: str | None, score_direction: str | None, checklist_maximum: float | None) -> None:
+    if not iiu_enabled:
+        return
+    if not dimension_code or score_direction not in {"direct", "inverse", "checklist"}:
+        raise HTTPException(422, "Para incluir o indicador no IIU, escolha a dimensão e como o score deve ser interpretado.")
+    if score_direction == "checklist" and (checklist_maximum is None or not math.isfinite(checklist_maximum) or checklist_maximum <= 0):
+        raise HTTPException(422, "Informe a pontuação máxima para indicadores do tipo checklist.")
+    if score_direction != "checklist" and checklist_maximum is not None:
+        raise HTTPException(422, "A pontuação máxima só se aplica a indicadores do tipo checklist.")
+    dimension_response = httpx.get(supabase_url("/rest/v1/iiu_dimension_catalog"), params={"select": "code", "city_profile": "eq.medio"}, headers=supabase_headers(), timeout=30.0)
+    if not dimension_response.is_success or dimension_code not in {dimension["code"] for dimension in dimension_response.json()}:
+        raise HTTPException(422, "Escolha uma dimensão existente no catálogo do IIU.")
+
+
+@app.get("/iiu-configuration")
+def get_iiu_configuration(city_profile: Literal["pequeno", "medio", "grande", "metropole"] = "medio") -> dict[str, Any]:
+    dimension_response = httpx.get(supabase_url("/rest/v1/iiu_dimension_catalog"), params={"city_profile": f"eq.{city_profile}", "select": "code,name,color,display_order,weight", "order": "display_order"}, headers=supabase_headers(), timeout=30.0)
+    indicator_response = httpx.get(supabase_url("/rest/v1/iiu_indicator_catalog"), params={"select": "code,name,dimension,unit,display_order", "order": "display_order,name"}, headers=supabase_headers(), timeout=30.0)
+    benchmark_response = httpx.get(supabase_url("/rest/v1/iiu_indicator_benchmark_catalog"), params={"city_profile": f"eq.{city_profile}", "select": "indicator_code,minimum_value,maximum_value"}, headers=supabase_headers(), timeout=30.0)
+    history_response = httpx.get(supabase_url("/rest/v1/iiu_configuration_history"), params={"select": "entity_type,entity_key,old_values,new_values,changed_at", "order": "changed_at.desc", "limit": "30"}, headers=supabase_headers(), timeout=30.0)
+    if not all(response.is_success for response in (dimension_response, indicator_response, benchmark_response, history_response)):
+        raise HTTPException(503, "Execute a migration 0018_indicator_and_iiu_configuration.sql no Supabase para configurar fórmulas, pesos e referências.")
+    benchmarks_by_indicator = {benchmark["indicator_code"]: benchmark for benchmark in benchmark_response.json()}
+    configured_indicators = [{**indicator, **benchmarks_by_indicator.get(indicator["code"], {"minimum_value": None, "maximum_value": None})} for indicator in indicator_response.json()]
+    return {"city_profile": city_profile, "dimensions": dimension_response.json(), "indicators": configured_indicators, "history": history_response.json()}
+
+
+@app.put("/iiu-configuration/weights")
+def update_iiu_dimension_weights(configuration: IiuWeightsUpdate) -> dict[str, Any]:
+    if len(configuration.weights) < 2 or any(not math.isfinite(weight) or weight <= 0 or weight > 100 for weight in configuration.weights.values()):
+        raise HTTPException(422, "Informe um peso maior que zero e de até 100 para cada dimensão.")
+    if abs(sum(configuration.weights.values()) - 100) > 0.01:
+        raise HTTPException(422, "A soma dos pesos precisa ser exatamente 100%.")
+    save_response = httpx.post(supabase_url("/rest/v1/rpc/save_iiu_dimension_weights"), headers=supabase_headers(), json={"selected_city_profile": configuration.city_profile, "selected_weights": configuration.weights}, timeout=30.0)
+    if not save_response.is_success:
+        raise registry_error("Nao foi possivel salvar os pesos do IIU.", save_response)
+    return {"city_profile": configuration.city_profile, "updated_dimensions": int(save_response.json())}
+
+
+@app.put("/iiu-configuration/benchmark")
+def update_iiu_indicator_benchmark(configuration: IiuBenchmarkUpdate) -> dict[str, Any]:
+    if not math.isfinite(configuration.minimum_value) or not math.isfinite(configuration.maximum_value) or configuration.minimum_value >= configuration.maximum_value:
+        raise HTTPException(422, "A referência máxima precisa ser maior que a mínima.")
+    save_response = httpx.post(supabase_url("/rest/v1/rpc/save_iiu_indicator_benchmark"), headers=supabase_headers(), json={"selected_indicator_code": configuration.indicator_code, "selected_city_profile": configuration.city_profile, "selected_minimum": configuration.minimum_value, "selected_maximum": configuration.maximum_value}, timeout=30.0)
+    if not save_response.is_success:
+        raise registry_error("Nao foi possivel salvar as referencias do indicador.", save_response)
+    return save_response.json()
 
 
 @app.get("/imports")
@@ -1214,7 +1301,10 @@ def create_indicator(indicator: IndicatorRegistration) -> dict[str, Any]:
     indicator_code = normalize_column(indicator.code)
     if not re.fullmatch(r"[a-z][a-z0-9_]{2,99}", indicator_code):
         raise HTTPException(422, "O código deve ter letras minúsculas, números ou sublinhados e começar com uma letra.")
-    indicator_response = httpx.post(supabase_url(indicator_registry_path), headers=supabase_headers("return=representation"), json={"code": indicator_code, "name": indicator.name.strip(), "dimension": indicator.dimension.strip(), "definition": indicator.definition.strip(), "unit": indicator.unit.strip(), "expected_frequency": indicator.expected_frequency.strip() if indicator.expected_frequency else None}, timeout=30.0)
+    if not math.isfinite(indicator.calculation_multiplier) or not 0 < indicator.calculation_multiplier <= 1000000:
+        raise HTTPException(422, "O multiplicador precisa ser maior que zero e menor ou igual a 1.000.000.")
+    validate_indicator_iiu_configuration(indicator.iiu_enabled, indicator.iiu_dimension_code, indicator.score_direction, indicator.checklist_max)
+    indicator_response = httpx.post(supabase_url(indicator_registry_path), headers=supabase_headers("return=representation"), json={"code": indicator_code, "name": indicator.name.strip(), "dimension": indicator.dimension.strip(), "definition": indicator.definition.strip(), "unit": indicator.unit.strip(), "expected_frequency": indicator.expected_frequency.strip() if indicator.expected_frequency else None, "calculation_type": indicator.calculation_type, "calculation_multiplier": indicator.calculation_multiplier, "iiu_enabled": indicator.iiu_enabled, "iiu_dimension_code": indicator.iiu_dimension_code if indicator.iiu_enabled else None, "score_direction": indicator.score_direction if indicator.iiu_enabled else None, "checklist_max": indicator.checklist_max if indicator.iiu_enabled and indicator.score_direction == "checklist" else None}, timeout=30.0)
     if indicator_response.status_code == 409:
         raise HTTPException(409, "Já existe um indicador com esse código.")
     if not indicator_response.is_success:
@@ -1318,8 +1408,18 @@ def approve_municipal_import(import_id: str, approval: MunicipalApproval) -> dic
     if not period:
         raise HTTPException(422, "Informe como o período aparece na planilha.")
     validate_period_selection(period)
+    selected_indicator = get_indicator(approval.indicator_id)
+    calculation_type = selected_indicator.get("calculation_type") or "direct"
+    calculation_value_field = approval.value_field
+    if calculation_type == "ratio":
+        if not approval.numerator_field or not approval.denominator_field or approval.numerator_field == approval.denominator_field:
+            raise HTTPException(422, "Escolha as colunas usadas no cálculo deste indicador.")
+        calculation_response = httpx.post(supabase_url("/rest/v1/rpc/prepare_municipal_import_calculation"), headers=supabase_headers(), json={"selected_import_id": import_id, "selected_sheet_name": approval.sheet_name, "numerator_field": approval.numerator_field, "denominator_field": approval.denominator_field, "calculation_multiplier": float(selected_indicator.get("calculation_multiplier") or 1)}, timeout=300.0)
+        if not calculation_response.is_success:
+            raise HTTPException(503, "Execute a migration 0018_indicator_and_iiu_configuration.sql no Supabase para aplicar fórmulas de indicadores.")
+        calculation_value_field = "value"
     ensure_municipal_catalog_registered()
-    is_already_prepared = period.mode == "prepared" and approval.value_field == "value" and approval.municipality_field == "municipality_ibge_code"
+    is_already_prepared = period.mode == "prepared" and calculation_value_field == "value" and approval.municipality_field == "municipality_ibge_code"
     period_problems: list[dict[str, Any]] = []
     value_problems: list[dict[str, Any]] = []
     municipality_problems: list[dict[str, Any]] = []
@@ -1327,7 +1427,7 @@ def approve_municipal_import(import_id: str, approval: MunicipalApproval) -> dic
     if not is_already_prepared:
         staged_rows = fetch_rows_for_municipality_resolution(import_id, approval.sheet_name)
         resolve_municipality = municipality_code_resolver(ibge_municipality_catalog())
-        prepared_rows, period_problems, value_problems, municipality_problems = prepare_rows_for_approval(staged_rows, period, approval.value_field, approval.municipality_field, resolve_municipality)
+        prepared_rows, period_problems, value_problems, municipality_problems = prepare_rows_for_approval(staged_rows, period, calculation_value_field, approval.municipality_field, resolve_municipality)
         upsert_staged_rows(import_id, approval.sheet_name, prepared_rows, "Não foi possível preparar município, período e valor das linhas antes da gravação.")
         rpc_municipality_field = approval_municipality_field
     approval_response = httpx.post(supabase_url("/rest/v1/rpc/approve_municipal_import"), headers=supabase_headers(), json={"selected_import_id": import_id, "selected_indicator_id": approval.indicator_id, "municipality_field": rpc_municipality_field, "year_field": "reference_year", "value_field": "value", "observation_unit": approval.unit, "selected_sheet_name": approval.sheet_name}, timeout=300.0)
@@ -1345,6 +1445,22 @@ def approve_municipal_import(import_id: str, approval: MunicipalApproval) -> dic
         "municipality_problem_count": len(municipality_problems),
         "municipality_problems": municipality_problems[:5],
     }
+
+
+@app.post("/imports/{import_id}/municipal-preview")
+def preview_municipal_import_calculation(import_id: str, preview: MunicipalCalculationPreview) -> dict[str, Any]:
+    if preview.calculation_type == "ratio" and not 0 < preview.calculation_multiplier <= 1000000:
+        raise HTTPException(422, "O multiplicador precisa ser maior que zero e menor ou igual a 1.000.000.")
+    if preview.calculation_type == "direct" and not preview.direct_field:
+        raise HTTPException(422, "Escolha a coluna que contém o valor do indicador.")
+    if preview.calculation_type == "ratio" and (not preview.numerator_field or not preview.denominator_field or preview.numerator_field == preview.denominator_field):
+        raise HTTPException(422, "Escolha as colunas do numerador e denominador.")
+    preview_response = httpx.post(supabase_url("/rest/v1/rpc/preview_municipal_import_calculation"), headers=supabase_headers(), json={"selected_import_id": import_id, "selected_sheet_name": preview.sheet_name, "calculation_type": preview.calculation_type, "direct_field": preview.direct_field, "numerator_field": preview.numerator_field, "denominator_field": preview.denominator_field, "calculation_multiplier": preview.calculation_multiplier}, timeout=90.0)
+    if not preview_response.is_success:
+        if preview_response.status_code == 404:
+            raise HTTPException(503, "Execute a migration 0018_indicator_and_iiu_configuration.sql no Supabase para pré-visualizar fórmulas.")
+        raise upstream_error("Não foi possível calcular uma prévia deste indicador.", preview_response)
+    return preview_response.json()
 
 
 def ibge_municipality_catalog() -> list[dict[str, str]]:

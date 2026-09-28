@@ -69,6 +69,15 @@
 .sourceForm input::file-selector-button { margin-right: 10px; padding: 4px 8px; border: 0; border-radius: var(--radius-sm); background: var(--color-surface-300); color: var(--color-text-lighter); font: inherit; font-size: var(--text-caption); }
 .sourceForm input:focus, .sourceForm select:focus { border-color: var(--color-brand); box-shadow: 0 0 0 3px rgba(62, 158, 255, .16); }
 .fieldNote { color: var(--color-text-muted); font-size: var(--text-caption); font-weight: 400; line-height: var(--leading-relaxed); }
+.sourceForm label.checkboxLabel { display: flex; align-items: center; gap: var(--space-2); font-weight: 500; cursor: pointer; }
+.sourceForm label.checkboxLabel input { width: 16px; height: 16px; accent-color: var(--color-brand); }
+.calculationPreview { display: grid; gap: var(--space-3); padding: var(--space-4); border: 1px solid var(--color-border-muted); border-radius: var(--radius-md); background: var(--color-surface-200); }
+.calculationPreview > div:first-child { display: flex; flex-wrap: wrap; align-items: baseline; gap: var(--space-2) var(--space-3); }
+.calculationPreview > div:first-child strong { color: var(--color-text); font-size: var(--text-heading-sm); font-variant-numeric: tabular-nums; }
+.calculationPreview > div:first-child span, .calculationPreview > p { color: var(--color-text-lighter); font-size: var(--text-sm); }
+.calculationPreview > p { margin: 0; }
+.calculationPreview .tableWrap { max-height: 320px; }
+.iiuConfigurationSections { display: grid; gap: var(--space-4); margin-top: var(--space-6); }
 .statusNotice { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; gap: var(--space-3); align-items: start; min-height: 46px; margin: 0; padding: 12px 14px; border: 1px solid var(--color-border-muted); border-radius: var(--radius-md); font-size: var(--text-sm); line-height: var(--leading-relaxed); }
 .statusNoticeIcon, .statusNoticeSpinner { margin-top: 1px; }
 .statusNoticeContent { min-width: 0; color: var(--color-text-light); }
