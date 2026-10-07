@@ -34,14 +34,14 @@
 
 /* Stepper — single progress indicator for the whole flow */
 .stepper { display: flex; margin: 0 0 var(--space-6); padding: 0; list-style: none; }
-.stepperItem { display: flex; flex: 1; min-width: 0; gap: var(--space-3); align-items: flex-start; }
-.stepperItem { position: relative; }
-.stepperConnector { position: absolute; top: 14px; left: 28px; right: 0; z-index: 0; height: 1px; background: var(--color-border); }
+.stepperItem { display: grid; flex: 1; min-width: 0; grid-template-columns: 28px minmax(0, 1fr); grid-template-rows: 28px auto; column-gap: var(--space-2); align-items: center; }
+.stepper .stepperMarker { grid-column: 1; grid-row: 1; }
+.stepperConnector { grid-column: 2; grid-row: 1; height: 1px; margin-right: var(--space-2); background: var(--color-border); }
 .stepperItem[data-status="completed"] .stepperConnector { background: var(--color-text-lighter); }
-.stepper .stepperMarker { position: relative; z-index: 1; flex-shrink: 0; display: grid; width: 28px; height: 28px; padding: 0; place-items: center; border: 1px solid var(--color-border-strong); border-radius: var(--radius-full); background: var(--color-canvas); color: var(--color-text-muted); font-size: var(--text-caption); font-weight: 590; }
+.stepper .stepperMarker { flex-shrink: 0; display: grid; width: 28px; height: 28px; padding: 0; place-items: center; border: 1px solid var(--color-border-strong); border-radius: var(--radius-full); background: var(--color-canvas); color: var(--color-text-muted); font-size: var(--text-caption); font-weight: 590; }
 .stepper button.stepperMarker { cursor: pointer; }
 .stepper button.stepperMarker:hover { border-color: var(--color-brand); color: var(--color-text); }
-.stepperLabel { position: relative; z-index: 1; min-width: 0; background: var(--color-canvas); }
+.stepperLabel { grid-column: 1 / -1; grid-row: 2; min-width: 0; margin-top: var(--space-2); align-self: start; }
 .stepperLabel strong { display: block; overflow: hidden; color: var(--color-text-muted); font-size: var(--text-sm); font-weight: 510; text-overflow: ellipsis; white-space: nowrap; }
 .stepperLabel p { margin: 2px 0 0; overflow: hidden; color: var(--color-text-muted); font-size: var(--text-caption); text-overflow: ellipsis; white-space: nowrap; }
 .stepperItem[data-status="current"] .stepperMarker { border-color: var(--color-brand); background: var(--color-brand); color: var(--color-brand-contrast); }
