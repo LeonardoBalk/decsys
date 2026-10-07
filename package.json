@@ -7,8 +7,9 @@
     "build": "next build",
     "lint": "eslint .",
     "typecheck": "next typegen && tsc --noEmit",
-    "test": "vitest run",
-    "test:api": "python -m unittest services.ingestion.tests.test_import_reading services.ingestion.tests.test_municipality_matching services.ingestion.tests.test_import_flow services.ingestion.tests.test_period_preparation services.ingestion.tests.test_municipal_series"
+    "test": "vitest run --configLoader runner",
+    "test:e2e": "node tests/e2e/run.mjs",
+    "test:api": "node tests/run-api-tests.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.57.4",

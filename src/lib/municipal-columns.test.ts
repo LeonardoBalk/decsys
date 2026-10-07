@@ -14,6 +14,13 @@ describe("municipal columns", () => {
     expect(isMunicipalityColumn("valor")).toBe(false);
   });
 
+  it("does not treat rankings or state totals as municipality columns", () => {
+    expect(isMunicipalityColumn("posicao_ocupada_pelos_100_maiores_municipios")).toBe(false);
+    expect(isMunicipalityColumn("unidades_da_federacao_numero_de_municipios")).toBe(false);
+    expect(isMunicipalityColumn("unidades_da_federacao_(numero_de_municipios_(1))")).toBe(false);
+    expect(isMunicipalityColumn("municipios_e_respectivas_unidades_da_federacao")).toBe(true);
+  });
+
   it("recognizes monthly columns by month and year", () => {
     expect(isPeriodColumn("julho_2026_saldos")).toBe(true);
     expect(isPeriodColumn("Março_2024")).toBe(true);
@@ -36,4 +43,17 @@ describe("municipal columns", () => {
     expect(suggestedMunicipalityName(profileWith(["cidade", "valor"]))).toBe("cidade");
   });
 
+
+  it("ignores saved suggestions that describe rankings and state totals", () => {
+    const sourceProfile = profileWith(
+      ["municipios_e_respectivas_unidades_da_federacao", "posicao_ocupada_pelos_100_maiores_municipios"],
+      { municipality_name: "posicao_ocupada_pelos_100_maiores_municipios" },
+    );
+    const stateProfile = profileWith(
+      ["unidades_da_federacao_(numero_de_municipios_(1))", "cinco_municipios_com_maiores_pibs_participacao"],
+      { municipality_name: "unidades_da_federacao_(numero_de_municipios_(1))" },
+    );
+    expect(suggestedMunicipalityName(sourceProfile)).toBe("municipios_e_respectivas_unidades_da_federacao");
+    expect(suggestedMunicipalityName(stateProfile)).toBe("");
+  });
 });

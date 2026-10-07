@@ -16,8 +16,15 @@ export default function NewIndicatorPage() {
   async function createIndicator(registration: IndicatorRegistration) {
     setIsSaving(true);
     setMessage("");
+    const indicatorPayload = {
+      ...registration,
+      calculation_multiplier: Number(registration.calculation_multiplier),
+      iiu_dimension_code: registration.iiu_enabled ? registration.iiu_dimension_code || null : null,
+      score_direction: registration.iiu_enabled ? registration.score_direction : null,
+      checklist_max: registration.iiu_enabled && registration.score_direction === "checklist" && registration.checklist_max ? Number(registration.checklist_max) : null,
+    };
     try {
-      const response = await fetch("/api/indicators", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(registration) });
+      const response = await fetch("/api/indicators", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(indicatorPayload) });
       if (!response.ok) {
         setMessageKind("error");
         setMessage(await importErrorMessage(response, "Não foi possível cadastrar o indicador."));

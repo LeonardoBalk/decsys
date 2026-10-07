@@ -90,6 +90,19 @@ class ImportReadingTests(unittest.TestCase):
         self.assertEqual(source_table.columns, ["municipios_e_respectivas_unidades_da_federacao", "posicao_ocupada", "produto_interno_bruto_(1_000_r$)", "participacao_(%)", "participacao_acumulada_(%)"])
         self.assertEqual(source_table.get_column("produto_interno_bruto_(1_000_r$)").to_list(), [828980607.731255293, 359634752.586723745])
 
+    def test_municipality_suggestion_ignores_ranking_column_names(self):
+        source_table = pl.DataFrame({
+            "municipios_e_respectivas_unidades_da_federacao": ["Sao Paulo (SP)"],
+            "posicao_ocupada_pelos_100_maiores_municipios": ["1o"],
+        })
+
+        self.assertEqual(main.suggest_mapping(source_table)["municipality_name"], "municipios_e_respectivas_unidades_da_federacao")
+        state_table = pl.DataFrame({
+            "unidades_da_federacao_(numero_de_municipios_(1))": ["27"],
+            "cinco_municipios_com_maiores_pibs_participacao": ["Sao Paulo"],
+        })
+        self.assertNotIn("municipality_name", main.suggest_mapping(state_table))
+
     def test_excel_discards_repeated_headers_inside_the_data(self):
         workbook = Workbook()
         source_sheet = workbook.active
@@ -181,6 +194,32 @@ class ImportReadingTests(unittest.TestCase):
 
         self.assertEqual(source_table.columns, ["municipio", "ano", "valor"])
         self.assertEqual(source_table.get_column("valor").to_list(), [1234.5, 2345.6])
+
+    def test_csv_unwraps_rows_exported_as_quoted_csv_strings(self):
+        csv_content = (
+            'fid,id,nm_mun,cd_setor,valor\r\n'
+            '"1,""1"",Campinas,""3509502"",""55"""\r\n'
+            '"2,""2"",Santos,""3548500"",""63"""\r\n'
+            '"3,""3"",São Paulo,""3550308"",""71"""\r\n'
+            '"4,""4"",Rio de Janeiro,""3304557"",""82"""\r\n'
+            '"5,""5"",Brasília,""5300108"",""49"""\r\n'
+            '"6,""6"",Curitiba,""4106902"",""77"""\r\n'
+        ).encode("utf-8")
+
+        source_table = read_table("setores.csv", csv_content)
+
+        self.assertEqual(source_table.shape, (6, 5))
+        self.assertEqual(source_table.get_column("nm_mun").to_list(), ["Campinas", "Santos", "São Paulo", "Rio de Janeiro", "Brasília", "Curitiba"])
+        self.assertEqual(source_table.get_column("cd_setor").to_list(), [3509502, 3548500, 3550308, 3304557, 5300108, 4106902])
+        self.assertEqual(source_table.get_column("valor").to_list(), [55, 63, 71, 82, 49, 77])
+
+    def test_csv_reinfers_column_types_when_later_rows_have_decimals(self):
+        csv_content = "id,valor\n" + "".join(f"{row_number},{row_number}\n" for row_number in range(1, 501)) + "501,500.25\n"
+
+        source_table = read_table("serie.csv", csv_content.encode("utf-8"))
+
+        self.assertEqual(source_table.height, 501)
+        self.assertEqual(source_table.get_column("valor").tail(1).to_list(), [500.25])
 
     def test_brazilian_decimal_normalization_keeps_valid_rows_when_some_cells_are_invalid(self):
         source_table = normalize_brazilian_decimals(read_table("dados.csv", b"valor;categoria\n1.25;A\n2,5;B\nnao informado;C\n"))
