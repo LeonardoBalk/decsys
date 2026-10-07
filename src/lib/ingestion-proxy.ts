@@ -4,7 +4,7 @@ const ingestionAddress = process.env.INGESTION_API_URL ?? "http://127.0.0.1:8000
 const defaultTimeoutMs = 120_000;
 
 type ProxyOptions = {
-  method?: "GET" | "POST" | "PATCH" | "PUT";
+  method?: "GET" | "POST" | "PATCH" | "PUT" | "DELETE";
   body?: BodyInit;
   headers?: HeadersInit;
   timeoutMs?: number;
