@@ -19,7 +19,7 @@ from email.message import Message
 from io import BytesIO, StringIO
 from itertools import islice
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from urllib.parse import parse_qs, quote, urlencode, urljoin, urlparse, urlunparse
 
 import httpx
@@ -1382,6 +1382,98 @@ def create_indicator(indicator: IndicatorRegistration) -> dict[str, Any]:
     if not indicator_response.is_success:
         raise registry_error("Não foi possível cadastrar o indicador no Supabase.", indicator_response)
     return indicator_response.json()[0]
+
+
+collection_sources_path = "/rest/v1/collection_sources"
+collection_sources_missing_message = "Execute a migration 0021_collection_sources.sql no Supabase para salvar fontes de coleta."
+collection_text_limits = {"dimension": 80, "factor": 120, "name": 200, "definition": 600, "unit": 80, "source": 200, "steps": 1200, "notes": 1200}
+
+
+class CollectionSourceInput(BaseModel):
+    dimension: str
+    factor: str = ""
+    name: str
+    definition: str = ""
+    unit: str = ""
+    source: str
+    official_link: Annotated[str | None, Field(alias="officialLink")] = None
+    access: Literal["link", "manual", "local"]
+    import_url: Annotated[str | None, Field(alias="importUrl")] = None
+    manual_url: Annotated[str | None, Field(alias="manualUrl")] = None
+    steps: str
+    needs: list[str] = Field(default_factory=list)
+    notes: str | None = None
+
+    model_config = {"populate_by_name": True}
+
+
+def collection_source_from_row(row: dict[str, Any]) -> dict[str, Any]:
+    return {"code": row["code"], "dimension": row["dimension"], "factor": row["factor"], "name": row["name"], "definition": row["definition"], "unit": row["unit"], "source": row["source"], "officialLink": row.get("official_link") or "", "access": row["access"], "importUrl": row.get("import_url") or None, "manualUrl": row.get("manual_url") or None, "steps": row["steps"], "needs": row.get("needs") or [], "notes": row.get("notes") or None, "verifiedOn": row["verified_on"]}
+
+
+def validated_collection_code(raw_code: str) -> str:
+    collection_code = raw_code.strip().upper()
+    if not re.fullmatch(r"[A-Z0-9_]{2,30}", collection_code):
+        raise HTTPException(422, "O código deve ter de 2 a 30 letras maiúsculas, números ou sublinhados (ex.: ECO11).")
+    return collection_code
+
+
+def collection_source_values(source: CollectionSourceInput) -> dict[str, Any]:
+    values: dict[str, Any] = {}
+    for field_name, field_limit in collection_text_limits.items():
+        field_value = (getattr(source, field_name) or "").strip()
+        if len(field_value) > field_limit:
+            raise HTTPException(422, f"O campo {field_name} passa de {field_limit} caracteres.")
+        values[field_name] = field_value
+    for field_name, label in (("dimension", "a dimensão"), ("name", "o nome"), ("source", "a fonte"), ("steps", "o passo a passo")):
+        if not values[field_name]:
+            raise HTTPException(422, f"Informe {label}.")
+    for field_name, link_value in (("official_link", source.official_link), ("import_url", source.import_url), ("manual_url", source.manual_url)):
+        link_text = (link_value or "").strip()
+        if link_text and not (link_text.startswith("https://") and len(link_text) <= 2000 and " " not in link_text):
+            raise HTTPException(422, "Os links precisam começar com https:// e não podem ter espaços.")
+        values[field_name] = link_text or None
+    if source.access == "link" and not values["import_url"]:
+        raise HTTPException(422, "Fontes importáveis por link precisam do link para importar.")
+    if source.access != "link":
+        values["import_url"] = None
+    values["access"] = source.access
+    values["needs"] = [need.strip()[:200] for need in source.needs if need.strip()][:10]
+    values["notes"] = values["notes"] or None
+    return values
+
+
+@app.get("/collection-sources")
+def list_collection_sources() -> list[dict[str, Any]]:
+    sources_response = httpx.get(supabase_url(collection_sources_path), params={"select": "*", "order": "code"}, headers=supabase_headers(), timeout=30.0)
+    if sources_response.status_code == 404:
+        raise HTTPException(503, collection_sources_missing_message)
+    if not sources_response.is_success:
+        raise upstream_error("Não foi possível carregar as fontes de coleta.", sources_response)
+    return [collection_source_from_row(row) for row in sources_response.json()]
+
+
+@app.put("/collection-sources/{code}")
+def save_collection_source(code: str, source: CollectionSourceInput) -> dict[str, Any]:
+    collection_code = validated_collection_code(code)
+    row_values = {"code": collection_code, **collection_source_values(source), "verified_on": date.today().isoformat(), "updated_at": datetime.now().astimezone().isoformat()}
+    save_response = httpx.post(supabase_url(collection_sources_path), params={"on_conflict": "code"}, headers=supabase_headers("resolution=merge-duplicates,return=representation"), json=row_values, timeout=30.0)
+    if save_response.status_code == 404:
+        raise HTTPException(503, collection_sources_missing_message)
+    if not save_response.is_success:
+        raise upstream_error("Não foi possível salvar a fonte de coleta.", save_response)
+    return collection_source_from_row(save_response.json()[0])
+
+
+@app.delete("/collection-sources/{code}")
+def delete_collection_source(code: str) -> dict[str, str]:
+    collection_code = validated_collection_code(code)
+    delete_response = httpx.delete(supabase_url(collection_sources_path), params={"code": f"eq.{collection_code}"}, headers=supabase_headers(), timeout=30.0)
+    if delete_response.status_code == 404:
+        raise HTTPException(503, collection_sources_missing_message)
+    if not delete_response.is_success:
+        raise upstream_error("Não foi possível excluir a fonte de coleta.", delete_response)
+    return {"code": collection_code, "status": "deleted"}
 
 
 @app.post("/profile")

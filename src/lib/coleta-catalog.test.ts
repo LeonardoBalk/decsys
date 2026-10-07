@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { collectionDimensions, collectionItems, countByAccess, importHref, isHttpsUrl } from "./coleta-catalog";
+import { collectionDimensions, collectionItems, countByAccess, draftFromItem, importHref, isHttpsUrl, mergeCollectionItems, payloadFromDraft } from "./coleta-catalog";
 
 describe("catálogo de coleta da matriz", () => {
   it("cobre as 7 dimensões e todos os indicadores da matriz", () => {
@@ -39,5 +39,33 @@ describe("catálogo de coleta da matriz", () => {
     expect(importHref("https://apisidra.ibge.gov.br/values/t/5938/n6/all?a=1&b=2")).toBe("/importar?link=https%3A%2F%2Fapisidra.ibge.gov.br%2Fvalues%2Ft%2F5938%2Fn6%2Fall%3Fa%3D1%26b%3D2");
     expect(isHttpsUrl("http://x.com")).toBe(false);
     expect(isHttpsUrl("lixo")).toBe(false);
+  });
+});
+
+describe("fontes de coleta salvas pela tela", () => {
+  const base = collectionItems.slice(0, 2);
+  const custom = { ...base[0], code: "ECO99", dimension: "Economia", name: "Novo", needs: [] };
+
+  it("sigla igual substitui a original e as novas entram na própria dimensão", () => {
+    const edited = { ...base[0], steps: "Passo novo, bem detalhado." };
+    const merged = mergeCollectionItems(base, [edited, custom]);
+    expect(merged.find((item) => item.code === base[0].code)).toMatchObject({ origin: "edited", steps: "Passo novo, bem detalhado." });
+    expect(merged.find((item) => item.code === "ECO99")?.origin).toBe("custom");
+    expect(merged.filter((item) => item.origin === "base")).toHaveLength(1);
+    expect(merged.map((item) => item.dimension)).toEqual(["Economia", "Economia", "Economia"]);
+  });
+
+  it("uma dimensão nova aparece depois das existentes", () => {
+    const merged = mergeCollectionItems(base, [{ ...custom, code: "SAU01", dimension: "Saúde" }]);
+    expect(collectionDimensions(merged)).toEqual(["Economia", "Saúde"]);
+  });
+
+  it("converte entre item, rascunho e payload sem perder a lista de necessidades", () => {
+    const item = { ...base[0], needs: ["população", "área"] };
+    const draft = draftFromItem(item);
+    expect(draft.needs).toBe("população; área");
+    const payload = payloadFromDraft({ ...draft, needs: "população;\n área ; " });
+    expect(payload.needs).toEqual(["população", "área"]);
+    expect("code" in payload).toBe(false);
   });
 });
