@@ -234,6 +234,19 @@
 .sourceForm textarea:focus { border-color: var(--color-brand); box-shadow: 0 0 0 3px rgba(62, 158, 255, .16); }
 .sourceForm input:disabled { color: var(--color-text-muted); cursor: not-allowed; }
 .municipalMappingGrid > .fieldNote { grid-column: 1 / -1; margin: 0; }
+.measureMappingList { display: grid; grid-column: 1 / -1; gap: var(--space-4); }
+.measureMapping { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-4); min-width: 0; margin: 0; padding: var(--space-4); border: 1px solid var(--color-border-muted); border-radius: var(--radius-lg); background: var(--color-surface-200); }
+.measureMapping legend { padding: 0 var(--space-2); color: var(--color-text); font-size: var(--text-sm); font-weight: 600; }
+.measureMapping > label, .measureMapping > .statusNotice, .measureMapping > .calculationPreview, .measureMapping > .fieldNote { grid-column: 1 / -1; }
+.measureMapping > label { display: grid; gap: var(--space-2); min-width: 0; color: var(--color-text); font-size: var(--text-sm); font-weight: 560; }
+.measureMapping select, .measureMapping input { width: 100%; min-width: 0; padding: 10px 11px; border: 1px solid var(--color-border-strong); border-radius: var(--radius-md); background: var(--color-surface-100); color: var(--color-text); font: inherit; font-size: var(--text-sm); }
+.removeMeasureButton { justify-self: start; padding: 8px 0; border: 0; background: transparent; color: var(--color-text-lighter); font: inherit; font-size: var(--text-sm); cursor: pointer; }
+.removeMeasureButton:hover:not(:disabled) { color: var(--color-danger); }
+.removeMeasureButton:disabled { opacity: .5; cursor: not-allowed; }
+.batchResultGrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: var(--space-3); margin: var(--space-4) 0; }
+.batchResult { display: grid; gap: var(--space-2); padding: var(--space-4); border: 1px solid var(--color-border-muted); border-radius: var(--radius-md); background: var(--color-surface-200); }
+.batchResult strong { color: var(--color-text); }
+.batchResult span { color: var(--color-text-lighter); font-size: var(--text-sm); }
 
 /* Links com aparência de botão secundário e grupos de ações */
 .secondaryLink { display: inline-flex; flex-shrink: 0; align-items: center; gap: var(--space-2); padding: 10px 16px; border: 1px solid var(--color-border); border-radius: var(--radius-md); background: var(--color-surface-200); color: var(--color-text-light); font-size: var(--text-sm); font-weight: 500; line-height: 1.25; text-decoration: none; }
@@ -298,7 +311,7 @@
   .workspaceShell { padding: 22px 18px 44px; }
   .workspaceIntro { padding-top: 38px; }
   .exportPanel { flex-direction: column; align-items: flex-start; }
-  .municipalMappingGrid, .periodFieldset { grid-template-columns: minmax(0, 1fr); }
+  .municipalMappingGrid, .periodFieldset, .measureMapping { grid-template-columns: minmax(0, 1fr); }
   .municipalMappingGrid > .statusNotice, .municipalMappingGrid > .issueHeading, .municipalMappingGrid > .validationIssueList, .municipalMappingGrid > .mappingSubmit { grid-column: auto; }
   .indicatorRecommendation { flex-direction: column; align-items: flex-start; }
   .iiuOverview { flex-direction: column; }
@@ -323,4 +336,23 @@
   .sheetSelector button { flex: 1; }
   .stepperConnector { display: none; }
   .stepperLabel strong { font-size: var(--text-caption); }
+}
+
+/* Sidebar — marca e grupos de navegação */
+.brandLink { display: block; padding: 0 10px; text-decoration: none; }
+.brandLink .productName { margin: 0 0 6px; color: var(--color-text); }
+.brandTagline { display: block; color: var(--color-text-lighter); font-size: var(--text-caption); line-height: 1.35; }
+.navGroup { display: grid; gap: 3px; }
+.sidebar nav { gap: var(--space-5); }
+.navGroupLabel { margin: 0; padding: 0 10px 4px; color: var(--color-text-muted); font-size: var(--text-xs); font-weight: 650; letter-spacing: .1em; text-transform: uppercase; }
+.sidebar nav a:focus-visible, .brandLink:focus-visible { outline: 2px solid var(--color-brand); outline-offset: 2px; }
+@media (max-width: 820px) {
+  .applicationShell { grid-template-columns: minmax(0, 1fr); }
+  .sidebar { min-width: 0; }
+  .navGroup { flex-shrink: 0; }
+  .brandLink { flex-shrink: 0; padding: 0; }
+  .brandTagline, .navGroupLabel, .sidebarFootnote { display: none; }
+  .sidebar nav { gap: 4px; }
+  .navGroup { display: flex; gap: 4px; }
+  .sidebar nav a { flex-shrink: 0; white-space: nowrap; }
 }

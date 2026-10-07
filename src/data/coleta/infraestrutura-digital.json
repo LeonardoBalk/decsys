@@ -1,0 +1,218 @@
+[
+ {
+  "code": "IDD01",
+  "dimension": "Infraestrutura Digital e Dados",
+  "factor": "Conectividade fixa",
+  "name": "Acessos de banda larga fixa por 100 domicílios",
+  "definition": "Acessos ativos de SCM divididos pelos domicílios particulares, x100.",
+  "unit": "acessos/100 domicílios",
+  "source": "Anatel — dados abertos + IBGE",
+  "officialLink": "https://dados.gov.br/dados/conjuntos-dados/qualidade-banda-larga-fixa",
+  "access": "link",
+  "importUrl": "https://www.anatel.gov.br/dadosabertos/paineis_de_dados/meu_municipio/meu_municipio.zip",
+  "manualUrl": "https://informacoes.anatel.gov.br/paineis/acessos",
+  "steps": "Cole o importUrl (zip de ~19 MB; o app usa o primeiro arquivo, Meu_Municipio_Acessos.csv, separador ';'). Filtre Serviço = 'Banda Larga Fixa' e o último Ano/Mês; use Acessos e Código IBGE. Para acessos por 100 domicílios divida Acessos pelos domicílios do Censo 2022.",
+  "needs": [
+   "domicílios particulares permanentes ocupados por município (SIDRA 4712, https://apisidra.ibge.gov.br/values/t/4712/n6/all/v/381/p/last)"
+  ],
+  "notes": "O arquivo já traz a coluna Densidade (acessos por 100 habitantes), não por domicílios. Dados mensais até 2025-11. O zip tem um segundo arquivo (Cobertura, 130 MB) que o app não lê. A página da tese (dados.gov.br) depende de JavaScript; os arquivos estão em www.anatel.gov.br/dadosabertos (links listados em informacoes.anatel.gov.br/paineis).",
+  "verifiedOn": "2026-10-07"
+ },
+ {
+  "code": "IDD02",
+  "dimension": "Infraestrutura Digital e Dados",
+  "factor": "Qualidade da conectividade",
+  "name": "Participação de acessos em fibra óptica",
+  "definition": "Acessos de banda larga fixa em fibra divididos pelo total de acessos fixos.",
+  "unit": "% dos acessos",
+  "source": "Anatel — dados abertos",
+  "officialLink": "https://dados.gov.br/dados/conjuntos-dados/meu-municipio---indice-brasileiro-de-conectividade",
+  "access": "manual",
+  "manualUrl": "https://informacoes.anatel.gov.br/paineis/acessos",
+  "steps": "Baixe https://www.anatel.gov.br/dadosabertos/paineis_de_dados/acessos/acessos_banda_larga_fixa.zip (~1 GB), filtre Tecnologia = Fibra por município e divida pelo total de acessos do município. Alternativa leve: no painel Acessos da Anatel filtre por município e exporte.",
+  "needs": [
+   "total de acessos de banda larga fixa por município"
+  ],
+  "notes": "O arquivo completo tem 1,05 GB (passa do limite de 200 MB), então não entra pelo app. O IBC (ibc.zip, importável) tem a coluna 'Fibra', mas é um score normalizado, não a participação em %. A página da tese (Meu Município/IBC) depende de JavaScript. Colunas do arquivo grande não foram abertas.",
+  "verifiedOn": "2026-10-07"
+ },
+ {
+  "code": "IDD03",
+  "dimension": "Infraestrutura Digital e Dados",
+  "factor": "Cobertura móvel",
+  "name": "Cobertura populacional 4G ou 5G",
+  "definition": "Moradores em áreas com cobertura 4G/5G divididos pela população municipal.",
+  "unit": "% da população",
+  "source": "Anatel — Painel de Cobertura Móvel",
+  "officialLink": "https://dados.gov.br/dados/conjuntos-dados/qualidade---mapa---download---telefonia-movel",
+  "access": "link",
+  "importUrl": "https://www.anatel.gov.br/dadosabertos/paineis_de_dados/meu_municipio/ibc.zip",
+  "manualUrl": "https://informacoes.anatel.gov.br/paineis/infraestrutura",
+  "steps": "Cole o importUrl (zip de ~1,6 MB; o app usa o primeiro arquivo, IBC_municipios_indicadores_normalizados.csv, separador ';'). Use a coluna 'Cobertura Pop. 4G5G' por Código Município e filtre o último Ano (2025).",
+  "needs": [],
+  "notes": "Anos 2021 a 2025, todos os municípios. Cobertura por operadora e tecnologia fica no segundo arquivo do meu_municipio.zip (Meu_Municipio_Cobertura.csv, 130 MB), que o app não lê: baixe manualmente em https://www.anatel.gov.br/dadosabertos/paineis_de_dados/meu_municipio/meu_municipio.zip. A página da tese (qualidade/mapa download) trata de velocidade, não de cobertura.",
+  "verifiedOn": "2026-10-07"
+ },
+ {
+  "code": "IDD04",
+  "dimension": "Infraestrutura Digital e Dados",
+  "factor": "Infraestrutura de telecomunicações",
+  "name": "Estações rádio-base por 100 mil habitantes",
+  "definition": "ERBs licenciadas e ativas divididas pela população, x100.000.",
+  "unit": "ERBs/100 mil hab.",
+  "source": "Anatel — dados abertos",
+  "officialLink": "https://dados.gov.br/dados/conjuntos-dados/radiodifusao---plano-basico",
+  "access": "manual",
+  "manualUrl": "https://informacoes.anatel.gov.br/paineis/infraestrutura",
+  "steps": "Baixe https://www.anatel.gov.br/dadosabertos/paineis_de_dados/outorga_e_licenciamento/estacoes_licenciadas.zip (~224 MB), filtre as estações do SMP (Serviço Móvel Pessoal) e conte por código IBGE do município. Divida pela população x 100 000.",
+  "needs": [
+   "população por município (Censo 2022: SIDRA 4709, https://apisidra.ibge.gov.br/values/t/4709/n6/all/v/93/p/last ; estimativa anual: SIDRA 6579, https://apisidra.ibge.gov.br/values/t/6579/n6/all/v/9324/p/last)"
+  ],
+  "notes": "O zip tem ~224 MB (acima do limite do app) e não foi aberto aqui; confirme a coluna Serviço antes de filtrar. Não use estacoes_cadastradas.zip: o conteúdo verificado é majoritariamente Banda Larga Fixa (SCM). Proxy rápido: coluna 'Adensamento Estações' do IBC (ibc.zip, importável). O link da tese (radiodifusão/plano básico) é de rádio e TV, não de ERBs.",
+  "verifiedOn": "2026-10-07"
+ },
+ {
+  "code": "IDD05",
+  "dimension": "Infraestrutura Digital e Dados",
+  "factor": "Sensoriamento urbano",
+  "name": "Infraestrutura de sensores inteligentes instalada",
+  "definition": "Existência de sensoriamento urbano em tempo real: tráfego, ar, água/energia, câmeras inteligentes, sensores de inundação.",
+  "unit": "escala 0–4",
+  "source": "IBGE — MUNIC (TI) / relatórios municipais",
+  "officialLink": "https://www.ibge.gov.br/estatisticas/sociais/saude/10586-pesquisa-de-informacoes-basicas-municipais.html?=&t=resultados",
+  "access": "link",
+  "importUrl": "https://ftp.ibge.gov.br/Perfil_Municipios/2024/Base_de_Dados/Base_MUNIC_2024_20251107.xlsx",
+  "manualUrl": "https://www.ibge.gov.br/estatisticas/sociais/saude/10586-pesquisa-de-informacoes-basicas-municipais.html",
+  "steps": "Cole o importUrl (Base MUNIC 2024), escolha a aba 'Informática e comunicação' e use MTIC266 (sensores para monitoramento de áreas de risco de enchentes, alagamentos ou desastres).",
+  "needs": [
+   "inventário municipal de sensores (IoT) para outros usos"
+  ],
+  "notes": "Cobre apenas sensores de risco de desastres (sim/não), não a infraestrutura de sensores inteligentes em geral. O link da tese (www.ibge.gov.br) retorna 403 a robôs; o arquivo vem do FTP do IBGE.",
+  "verifiedOn": "2026-10-07"
+ },
+ {
+  "code": "IDD06",
+  "dimension": "Infraestrutura Digital e Dados",
+  "factor": "Inclusão digital",
+  "name": "Pontos públicos de Wi-Fi por 100 mil habitantes",
+  "definition": "Pontos públicos gratuitos operacionais divididos pela população, x100.000.",
+  "unit": "pontos/100 mil hab.",
+  "source": "Prefeitura/programas públicos",
+  "officialLink": "https://dados.gov.br/",
+  "access": "local",
+  "manualUrl": "https://dados.gov.br/",
+  "steps": "Procure no portal da prefeitura ou em programas federais (WiFi Brasil/GESAC) a lista de pontos públicos de Wi-Fi e conte por município.",
+  "needs": [
+   "população por município (Censo 2022: SIDRA 4709, https://apisidra.ibge.gov.br/values/t/4709/n6/all/v/93/p/last ; estimativa anual: SIDRA 6579, https://apisidra.ibge.gov.br/values/t/6579/n6/all/v/9324/p/last)"
+  ],
+  "notes": "Não há base nacional com número de pontos por município. A MUNIC 2024 (https://ftp.ibge.gov.br/Perfil_Municipios/2024/Base_de_Dados/Base_MUNIC_2024_20251107.xlsx, aba 'Informática e comunicação', MTIC22) só informa se a prefeitura disponibiliza Wi-Fi público, sem contagem.",
+  "verifiedOn": "2026-10-07"
+ },
+ {
+  "code": "IDD07",
+  "dimension": "Infraestrutura Digital e Dados",
+  "factor": "Governo digital",
+  "name": "Serviços municipais totalmente digitais",
+  "definition": "Serviços prioritários solicitados, acompanhados e concluídos on-line divididos pelo total avaliado.",
+  "unit": "% dos serviços",
+  "source": "Portal municipal + IBGE MUNIC",
+  "officialLink": "https://www.ibge.gov.br/estatisticas/sociais/educacao/10586-pesquisa-de-informacoes-basicas-municipais.html",
+  "access": "link",
+  "importUrl": "https://ftp.ibge.gov.br/Perfil_Municipios/2024/Base_de_Dados/Base_MUNIC_2024_20251107.xlsx",
+  "manualUrl": "https://www.ibge.gov.br/estatisticas/sociais/saude/10586-pesquisa-de-informacoes-basicas-municipais.html",
+  "steps": "Cole o importUrl (Base MUNIC 2024), escolha a aba 'Informática e comunicação' e use as variáveis do bloco 2.9 sobre serviços e página na internet (veja o Dicionário; ex.: MTIC288 = não possui página/serviços eletrônicos).",
+  "needs": [
+   "catálogo de serviços do portal municipal (levantamento local)"
+  ],
+  "notes": "A MUNIC diz que tipos de serviços existem online, não se são totalmente digitais; complemente no portal da prefeitura. O link da tese (www.ibge.gov.br, caminho 'educacao') retorna 403 a robôs; o arquivo correto está no FTP.",
+  "verifiedOn": "2026-10-07"
+ },
+ {
+  "code": "IDD08",
+  "dimension": "Infraestrutura Digital e Dados",
+  "factor": "Dados abertos",
+  "name": "Maturidade do portal de dados abertos",
+  "definition": "Checklist: catálogo, licença, formatos abertos, metadados, atualização, API, histórico e canal de contato.",
+  "unit": "índice 0–8",
+  "source": "Portal municipal + PNTP",
+  "officialLink": "https://radardatransparencia.atricon.org.br/avaliacoes.html",
+  "access": "link",
+  "importUrl": "https://ftp.ibge.gov.br/Perfil_Municipios/2024/Base_de_Dados/Base_MUNIC_2024_20251107.xlsx",
+  "manualUrl": "https://radardatransparencia.atricon.org.br/avaliacoes.html",
+  "steps": "Para existência de portal de dados abertos, cole o importUrl (Base MUNIC 2024), aba 'Informática e comunicação', variável MTIC272. Para a maturidade (nota), abra o Radar da Transparência, escolha o ente e o ciclo e exporte a avaliação.",
+  "needs": [
+   "avaliação PNTP/Radar da Transparência do município"
+  ],
+  "notes": "MTIC272 só informa se existe portal de dados abertos. O Radar da Transparência (Atricon) responde 200, mas é painel interativo sem arquivo único por link; trate a nota como coleta manual.",
+  "verifiedOn": "2026-10-07"
+ },
+ {
+  "code": "IDD09",
+  "dimension": "Infraestrutura Digital e Dados",
+  "factor": "Interoperabilidade",
+  "name": "Integração da plataforma urbana de dados",
+  "definition": "Índice de sistemas prioritários integrados por identificadores, padrões de dados e APIs documentadas.",
+  "unit": "índice/%",
+  "source": "Prefeitura/arquitetura de TIC",
+  "officialLink": "https://www.gov.br/governodigital/pt-br/infraestrutura-nacional-de-dados/interoperabilidade",
+  "access": "local",
+  "manualUrl": "https://www.gov.br/governodigital/pt-br/infraestrutura-nacional-de-dados/interoperabilidade",
+  "steps": "Aplique o checklist de integração (catálogo de dados, APIs, interoperabilidade) com o órgão de TIC da prefeitura e registre a resposta.",
+  "needs": [],
+  "notes": "Não existe base pública por município; é avaliação de arquitetura de TIC feita com a prefeitura.",
+  "verifiedOn": "2026-10-07"
+ },
+ {
+  "code": "IDD10",
+  "dimension": "Infraestrutura Digital e Dados",
+  "factor": "Cibersegurança e privacidade",
+  "name": "Maturidade de segurança da informação e LGPD",
+  "definition": "Checklist: política, encarregado, inventário, controle de acesso, backups, resposta a incidentes, treinamento e transparência.",
+  "unit": "índice 0–8",
+  "source": "Prefeitura/portal institucional",
+  "officialLink": "https://www.gov.br/anpd/pt-br",
+  "access": "link",
+  "importUrl": "https://ftp.ibge.gov.br/Perfil_Municipios/2024/Base_de_Dados/Base_MUNIC_2024_20251107.xlsx",
+  "manualUrl": "https://www.gov.br/anpd/pt-br",
+  "steps": "Cole o importUrl (Base MUNIC 2024), escolha a aba 'Governanca' e use MGOV32 (área ou pessoa responsável pela LGPD), MGOV34 (cursos de segurança da informação e proteção de dados) e MGOV36 (lei ou regulamento municipal sobre LGPD). Na aba 'Informática e comunicação' veja MTIC342.",
+  "needs": [
+   "política de segurança da informação e encarregado (DPO) no portal da prefeitura"
+  ],
+  "notes": "A MUNIC cobre existência de estrutura e normas de LGPD; a maturidade de segurança da informação exige checagem do portal institucional. A ANPD não publica base por município.",
+  "verifiedOn": "2026-10-07"
+ },
+ {
+  "code": "IDD11",
+  "dimension": "Infraestrutura Digital e Dados",
+  "factor": "Conectividade educacional",
+  "name": "Escolas com internet adequada",
+  "definition": "Escolas com internet e parâmetros mínimos divididas pelo total de escolas.",
+  "unit": "% das escolas",
+  "source": "Inep — Censo Escolar",
+  "officialLink": "https://www.gov.br/inep/pt-br/acesso-a-informacao/dados-abertos/microdados/censo-escolar",
+  "access": "manual",
+  "manualUrl": "https://www.gov.br/inep/pt-br/acesso-a-informacao/dados-abertos/microdados/censo-escolar",
+  "steps": "Baixe https://download.inep.gov.br/dados_abertos/microdados_censo_escolar_2024.zip (~34 MB), extraia dados/microdados_ed_basica_2024.csv (~218 MB) e, por CO_MUNICIPIO, calcule a proporção de escolas em atividade com IN_INTERNET=1 e IN_BANDA_LARGA=1.",
+  "needs": [],
+  "notes": "O zip cabe em 200 MB, mas tem vários arquivos e o CSV interno tem ~218 MB: agregue por município antes de importar. A edição 2025 (microdados_censo_escolar_2025_.zip) tem ~537 MB. Filtre TP_SITUACAO_FUNCIONAMENTO = 1 e defina 'internet adequada' (banda larga + uso pedagógico: IN_INTERNET_ALUNOS, IN_INTERNET_APRENDIZAGEM). Atenção: o servidor download.inep.gov.br tem cadeia de certificado incompleta; o app falhou com CERTIFICATE_VERIFY_FAILED nesta máquina, embora o navegador e o curl baixem normalmente.",
+  "verifiedOn": "2026-10-07"
+ },
+ {
+  "code": "IDD12",
+  "dimension": "Infraestrutura Digital e Dados",
+  "factor": "Saúde digital",
+  "name": "Estabelecimentos de saúde com conectividade/sistemas digitais",
+  "definition": "Estabelecimentos com conexão e sistemas digitais divididos pelo total selecionado.",
+  "unit": "% dos estabelecimentos",
+  "source": "DATASUS/CNES + levantamento municipal",
+  "officialLink": "https://cnes.datasus.gov.br/",
+  "access": "manual",
+  "manualUrl": "https://cnes.datasus.gov.br/pages/downloads/arquivosBaseDados.jsp",
+  "steps": "Na página de downloads do CNES baixe a base completa do mês (zip) e, na tabela de estabelecimentos, conte por município os que têm conectividade/sistemas digitais. Alternativa: TabNet do CNES por município.",
+  "needs": [
+   "levantamento municipal de sistemas digitais (prontuário eletrônico etc.)"
+  ],
+  "notes": "Arquivos do DATASUS (.dbc em ftp.datasus.gov.br) exigem conversão e a base completa é grande e com vários arquivos; por isso é manual. A página do CNES responde 200, mas os campos de conectividade não foram inspecionados; confirme no dicionário antes de calcular.",
+  "verifiedOn": "2026-10-07"
+ }
+]
