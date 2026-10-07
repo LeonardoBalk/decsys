@@ -23,6 +23,7 @@ export const periodModeLabels: Record<PeriodMode, string> = {
 };
 
 export const monthNames = ["janeiro", "fevereiro", "março", "abril", "maio", "junho", "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"];
+const monthYearValuePattern = /^(?:jan(?:eiro)?|fev(?:ereiro)?|mar(?:co)?|abr(?:il)?|mai(?:o)?|jun(?:ho)?|jul(?:ho)?|ago(?:sto)?|set(?:embro)?|out(?:ubro)?|nov(?:embro)?|dez(?:embro)?)[./\s_-]+(?:19|20)\d{2}$|^(?:19|20)\d{2}[./-]\d{1,2}$|^\d{1,2}[./-](?:19|20)\d{2}$/;
 
 function findColumn(sourceProfile: SourceProfile, pattern: RegExp) {
   return sourceProfile.columns.find((column) => pattern.test(normalizedColumnName(column.name)))?.name ?? "";
@@ -36,6 +37,13 @@ export function suggestedPeriod(sourceProfile: SourceProfile): PeriodSelection {
   if (yearField && monthField) return { ...emptySelection, mode: "month_year_columns", granularity: "month", yearField, monthField };
   if (yearField) return { ...emptySelection, mode: "year_column", yearField };
   if (dateField) return { ...emptySelection, mode: "date_column", granularity: "month", dateField };
+  const sampledPeriodColumn = sourceProfile.columns.find((column) => {
+    if (!/(?:^|_)(?:mes|month|competencia|periodo|referencia|data|date)(?:_|$)/.test(normalizedColumnName(column.name))) return false;
+    const sampledRows = sourceProfile.sample.slice(0, 20);
+    const recognizedValues = sampledRows.filter((row) => monthYearValuePattern.test(normalizedColumnName(String(row[column.name] ?? "").trim())));
+    return recognizedValues.length >= 2 && recognizedValues.length / sampledRows.length >= 0.8;
+  });
+  if (sampledPeriodColumn) return { ...emptySelection, mode: "date_column", granularity: "month", dateField: sampledPeriodColumn.name };
   return emptySelection;
 }
 

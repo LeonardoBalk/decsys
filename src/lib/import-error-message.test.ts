@@ -12,6 +12,11 @@ describe("importErrorMessage", () => {
     expect(await importErrorMessage(response, "fallback")).toBe("Serviço fora do ar.");
   });
 
+  it("identifies fields rejected by FastAPI validation", async () => {
+    const response = new Response(JSON.stringify({ detail: [{ loc: ["body", "unit"], msg: "Field required" }, { loc: ["body", "code"], msg: "Field required" }] }), { status: 422 });
+    expect(await importErrorMessage(response, "fallback")).toBe("Confira estes campos: unidade, código interno.");
+  });
+
   it("explains large files and server failures when the body is not JSON", async () => {
     expect(await importErrorMessage(new Response("too large", { status: 413 }), "fallback")).toMatch(/grande demais/);
     expect(await importErrorMessage(new Response("boom", { status: 500 }), "fallback")).toMatch(/não conseguiu concluir/);

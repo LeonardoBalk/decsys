@@ -10,3 +10,6 @@ __pycache__
 .pnpm-store
 tsconfig.tsbuildinfo
 tmp/
+tests/e2e/.npm-cache/
+tests/e2e/test-results/
+tests/e2e/playwright-report/

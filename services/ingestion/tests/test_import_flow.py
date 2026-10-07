@@ -3,7 +3,7 @@ import unittest
 from datetime import date
 from decimal import Decimal
 from io import BytesIO
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 from zipfile import ZIP_DEFLATED, ZipFile
 
 from fastapi import HTTPException
@@ -77,6 +77,43 @@ class CKANPageDiscoveryTests(unittest.TestCase):
 
         self.assertEqual(resources, [{"name": "baixa-renda.csv", "url": "https://dados.aneel.gov.br/baixa-renda.csv"}])
         self.assertEqual(get_request.call_args.kwargs["params"], {"fq": 'tags:"baixa renda"', "rows": 100})
+
+
+class MunicResourceDiscoveryTests(unittest.TestCase):
+    @patch("services.ingestion.app.main.httpx.get")
+    def test_pib_municipal_page_does_not_use_munic_mirror(self, get_request):
+        resources = main.discover_munic_resources(
+            "https://www.ibge.gov.br/estatisticas/economicas/contas-nacionais/9088-produto-interno-bruto-dos-municipios.html"
+        )
+
+        self.assertEqual(resources, [])
+        get_request.assert_not_called()
+
+    @patch("services.ingestion.app.main.httpx.get")
+    def test_munic_page_uses_the_ibge_mirror(self, get_request):
+        get_request.return_value.content = b'<a href="Base_MUNIC_2024.xlsx">Base MUNIC</a>'
+        get_request.return_value.url = "https://ftp.ibge.gov.br/Perfil_Municipios/2024/Base_de_Dados/"
+        get_request.return_value.raise_for_status.return_value = None
+
+        resources = main.discover_munic_resources(
+            "https://www.ibge.gov.br/estatisticas/sociais/educacao/10586-pesquisa-de-informacoes-basicas-municipais.html"
+        )
+
+        self.assertEqual(resources, [{"name": "Base_MUNIC_2024.xlsx", "url": "https://ftp.ibge.gov.br/Perfil_Municipios/2024/Base_de_Dados/Base_MUNIC_2024.xlsx"}])
+
+
+class GenericDownloadDiscoveryTests(unittest.TestCase):
+    def test_gov_br_pages_ignore_downloads_from_unrelated_sections(self):
+        page_url = "https://www.gov.br/cidades/pt-br/acesso-a-informacao/acoes-e-programas/saneamento/sinisa/resultados-sinisa"
+        page_content = b"""
+        <a href="/cidades/pt-br/assuntos/emendasparlamentares/planilha-alheia.xlsx">Planilha alheia</a>
+        <a href="/cidades/pt-br/acesso-a-informacao/acoes-e-programas/saneamento/sinisa/resultado-sinisa.xlsx">Resultado SINISA</a>
+        <a href="https://download.inep.gov.br/dados_abertos/microdados.zip">Arquivo de outro host</a>
+        """
+
+        downloads = main.discover_downloads(page_content, page_url)
+
+        self.assertEqual(downloads, [{"name": "resultado-sinisa.xlsx", "url": "https://www.gov.br/cidades/pt-br/acesso-a-informacao/acoes-e-programas/saneamento/sinisa/resultado-sinisa.xlsx"}, {"name": "microdados.zip", "url": "https://download.inep.gov.br/dados_abertos/microdados.zip"}])
 
 
 class JsonCompatibilityTests(unittest.TestCase):
@@ -164,6 +201,37 @@ class PartialImportCleanupTests(unittest.TestCase):
         self.assertIn("violates constraint", caught_error.exception.detail)
         deleted_urls = [call.args[0] for call in delete_request.call_args_list]
         self.assertEqual(deleted_urls, ["https://supabase.test/storage/v1/object/source-files/imports/import-id/original/dados.csv", "https://supabase.test/rest/v1/imports", "https://supabase.test/rest/v1/sources"])
+
+
+class IncludeAdditionalSheetsTests(unittest.TestCase):
+    @patch("services.ingestion.app.main.supabase_headers", return_value={})
+    @patch("services.ingestion.app.main.supabase_url", side_effect=lambda path: f"https://supabase.test{path}")
+    @patch("services.ingestion.app.main.import_tables")
+    @patch("services.ingestion.app.main.httpx.patch")
+    @patch("services.ingestion.app.main.httpx.post")
+    @patch("services.ingestion.app.main.httpx.get")
+    def test_additional_sheets_upsert_using_their_unique_keys(self, get_request, post_request, patch_request, import_tables, supabase_url, supabase_headers):
+        import_record = {"storage_path": "imports/test/original/test.xlsx", "file_name": "test.xlsx", "profile": {"selected_sheet": "Base"}, "total_rows": 1}
+        stored_workbook = Mock(is_success=True, content=b"workbook")
+        existing_sheets = [{"sheet_name": "Base", "row_count": 1}, {"sheet_name": "Extra", "row_count": 0}]
+        get_request.side_effect = [
+            successful_response([import_record]),
+            stored_workbook,
+            successful_response(existing_sheets),
+        ]
+        post_request.side_effect = [successful_response([]), successful_response([])]
+        patch_request.return_value = successful_response([])
+        import_tables.return_value = [
+            ("Base", main.pl.DataFrame({"municipality": ["A"]})),
+            ("Extra", main.pl.DataFrame({"municipality": ["B", "C"]})),
+        ]
+
+        result = main.include_remaining_import_sheets("import-id")
+
+        self.assertEqual(result, {"import_id": "import-id", "added_rows": 2, "added_sheets": ["Extra"]})
+        self.assertEqual(post_request.call_args_list[0].kwargs["params"], {"on_conflict": "import_id,sheet_name,row_number"})
+        self.assertEqual(post_request.call_args_list[1].kwargs["params"], {"on_conflict": "import_id,sheet_name"})
+        self.assertEqual(patch_request.call_args.kwargs["json"], {"total_rows": 3})
 
 
 class DashboardValuesTests(unittest.TestCase):

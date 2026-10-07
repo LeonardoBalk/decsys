@@ -97,6 +97,21 @@ class MunicipalApproval(BaseModel):
     period: PeriodSelection | None = None
 
 
+class MunicipalIndicatorMapping(BaseModel):
+    indicator_id: str
+    value_field: str | None = None
+    numerator_field: str | None = None
+    denominator_field: str | None = None
+    unit: str
+
+
+class MunicipalBatchApproval(BaseModel):
+    mappings: list[MunicipalIndicatorMapping] = Field(min_length=1, max_length=20)
+    municipality_field: str
+    sheet_name: str | None = None
+    period: PeriodSelection
+
+
 class MunicipalCalculationPreview(BaseModel):
     calculation_type: Literal["direct", "ratio"]
     direct_field: str = ""
@@ -609,6 +624,42 @@ def detect_csv_separator(csv_text: str) -> str:
         return max(candidate_counts, key=candidate_counts.get) if any(candidate_counts.values()) else ","
 
 
+def has_wrapped_csv_records(csv_text: str, separator: str) -> bool:
+    sample_lines = list(islice(StringIO(csv_text), 7))
+    if len(sample_lines) < 4:
+        return False
+    header_fields = next(csv.reader([sample_lines[0]], delimiter=separator), [])
+    if len(header_fields) < 2:
+        return False
+    for source_line in sample_lines[1:]:
+        source_record = source_line.rstrip("\r\n")
+        parsed_record = next(csv.reader([source_record], delimiter=separator), [])
+        if len(parsed_record) != 1 or not source_record.startswith('"') or not source_record.endswith('"'):
+            return False
+        unwrapped_record = source_record[1:-1].replace('""', '"')
+        if len(next(csv.reader([unwrapped_record], delimiter=separator), [])) != len(header_fields):
+            return False
+    return True
+
+
+def unwrap_csv_records(csv_text: str) -> str:
+    normalized_lines = StringIO()
+    for source_line in StringIO(csv_text):
+        source_record = source_line.rstrip("\r\n")
+        line_ending = source_line[len(source_record):]
+        if source_record.startswith('"') and source_record.endswith('"'):
+            source_record = source_record[1:-1].replace('""', '"')
+        normalized_lines.write(source_record + line_ending)
+    return normalized_lines.getvalue()
+
+
+def read_csv_source_table(csv_text: str, separator: str) -> pl.DataFrame:
+    try:
+        return pl.read_csv(StringIO(csv_text), try_parse_dates=True, infer_schema_length=500, separator=separator)
+    except pl.exceptions.ComputeError:
+        return pl.read_csv(StringIO(csv_text), try_parse_dates=True, infer_schema_length=None, separator=separator)
+
+
 def normalize_brazilian_decimals(source_table: pl.DataFrame) -> pl.DataFrame:
     numeric_pattern = r"^-?(?:(?:[0-9]{1,3}(\.[0-9]{3})*|[0-9]+)(,[0-9]+)?|[0-9]+\.[0-9]+|,[0-9]+)$"
     normalized_columns: list[pl.Expr] = []
@@ -848,7 +899,10 @@ def read_table_content(source_name: str, source_content: bytes, sheet_name: str 
             return read_table(Path(chosen_member).name, source_archive.read(chosen_member))
     if source_extension == ".csv":
         csv_text = decode_csv_text(source_content)
-        return normalize_brazilian_decimals(pl.read_csv(StringIO(csv_text), try_parse_dates=True, infer_schema_length=500, separator=detect_csv_separator(csv_text)))
+        separator = detect_csv_separator(csv_text)
+        if has_wrapped_csv_records(csv_text, separator):
+            csv_text = unwrap_csv_records(csv_text)
+        return normalize_brazilian_decimals(read_csv_source_table(csv_text, separator))
     if source_extension == ".xlsx":
         selected_sheet = resolve_sheet_name(source_name, source_content, sheet_name)
         return normalize_brazilian_decimals(read_excel_table(source_content, str(selected_sheet)))
@@ -926,8 +980,8 @@ def suggest_mapping(source_table: pl.DataFrame) -> dict[str, str]:
     for column_name in source_table.columns:
         if is_municipality_code_column(column_name):
             suggestions.setdefault("municipality_code", column_name)
-        elif "municipio" in column_name:
-            suggestions["municipality_name"] = column_name
+        elif "municipio" in column_name and not re.search(r"(?:maiores|menores|numero_de_municipios|participacao|posicao|total)", column_name):
+            suggestions.setdefault("municipality_name", column_name)
         if column_name in {"ano", "year", "periodo", "ano_referencia"}:
             suggestions["reference_year"] = column_name
         if column_name in {"valor", "value", "indice", "percentual"}:
@@ -1005,13 +1059,28 @@ def assess_source(source_profile: dict[str, Any]) -> dict[str, Any]:
         return {"status": "unavailable", "summary": "A estrutura foi lida, mas a avaliação do agente não ficou disponível para esta fonte."}
 
 
+def is_download_in_gov_br_page_context(page_url: str, download_url: str) -> bool:
+    page_address = urlparse(page_url)
+    download_address = urlparse(download_url)
+    if page_address.hostname != download_address.hostname or not page_address.hostname or not page_address.hostname.endswith("gov.br"):
+        return True
+    page_sections = [section.lower() for section in page_address.path.split("/") if section and section.lower() != "pt-br"]
+    download_sections = [section.lower() for section in download_address.path.split("/") if section and section.lower() != "pt-br"]
+    shared_sections = 0
+    for page_section, download_section in zip(page_sections, download_sections):
+        if page_section != download_section:
+            break
+        shared_sections += 1
+    return shared_sections >= 2
+
+
 def discover_downloads(page_content: bytes, page_url: str) -> list[dict[str, str]]:
     document = BeautifulSoup(page_content, "html.parser")
     downloads: list[dict[str, str]] = []
     for link_element in document.select("a[href]"):
         candidate_url = urljoin(page_url, str(link_element.get("href")))
         candidate_name = Path(urlparse(candidate_url).path).name
-        if urlparse(candidate_url).scheme in {"http", "https"} and Path(candidate_name).suffix.lower() in acceptable_extensions:
+        if urlparse(candidate_url).scheme in {"http", "https"} and Path(candidate_name).suffix.lower() in acceptable_extensions and is_download_in_gov_br_page_context(page_url, candidate_url):
             downloads.append({"name": candidate_name, "url": candidate_url})
     return list({download["url"]: download for download in downloads}.values())[:20]
 
@@ -1055,7 +1124,10 @@ def discover_ckan_resources(page_url: str) -> list[dict[str, str]]:
 
 
 def discover_munic_resources(page_url: str) -> list[dict[str, str]]:
-    if "ibge.gov.br" not in urlparse(page_url).netloc or "munic" not in page_url.lower() and "10586" not in page_url:
+    parsed_url = urlparse(page_url)
+    is_ibge_host = bool(parsed_url.hostname and parsed_url.hostname.endswith("ibge.gov.br"))
+    munic_page_tokens = ("10586-", "pesquisa-de-informacoes-basicas-municipais", "perfil_municipios")
+    if not is_ibge_host or not any(token in parsed_url.path.lower() for token in munic_page_tokens):
         return []
     try:
         ftp_response = httpx.get("https://ftp.ibge.gov.br/Perfil_Municipios/2024/Base_de_Dados/", timeout=20.0)
@@ -1335,6 +1407,11 @@ async def fetch_link_source(source_url: str) -> tuple[str, bytes, str, str, list
         source_name, source_content, _ = await run_in_threadpool(fetch_drive_file, drive_id)
         ensure_source_size(len(source_content))
         return source_name, source_content, "", source_url, None
+    # As páginas do IBGE ficam atrás de WAF e respondem 403 a clientes automatizados; a base da MUNIC é lida direto do FTP.
+    is_direct_file = Path(urlparse(source_url).path).suffix.lower() in acceptable_extensions
+    munic_candidates = [] if is_direct_file else await run_in_threadpool(discover_munic_resources, source_url)
+    if munic_candidates:
+        return "", b"", "", source_url, munic_candidates
     source_name, source_content, content_type, final_url = await download_source(source_url)
     return source_name, source_content, content_type, final_url, None
 
@@ -1445,6 +1522,72 @@ def approve_municipal_import(import_id: str, approval: MunicipalApproval) -> dic
         "municipality_problem_count": len(municipality_problems),
         "municipality_problems": municipality_problems[:5],
     }
+
+
+@app.post("/imports/{import_id}/approve-municipal-batch")
+def approve_municipal_import_batch(import_id: str, approval: MunicipalBatchApproval) -> dict[str, Any]:
+    validate_period_selection(approval.period)
+    indicator_ids = [mapping.indicator_id for mapping in approval.mappings]
+    if len(set(indicator_ids)) != len(indicator_ids):
+        raise HTTPException(422, "Escolha cada indicador uma unica vez nesta importacao.")
+    indicator_response = httpx.get(
+        supabase_url(indicator_registry_path),
+        params={"select": indicator_fields, "id": f"in.({','.join(indicator_ids)})", "active": "is.true"},
+        headers=supabase_headers(),
+        timeout=30.0,
+    )
+    if not indicator_response.is_success:
+        raise registry_error("Nao foi possivel carregar os indicadores selecionados.", indicator_response)
+    indicators_by_id = {indicator["id"]: indicator for indicator in indicator_response.json()}
+    if set(indicators_by_id) != set(indicator_ids):
+        raise HTTPException(422, "Um ou mais indicadores nao existem ou foram desativados. Atualize o catalogo e tente novamente.")
+
+    selected_mappings: list[dict[str, Any]] = []
+    for mapping in approval.mappings:
+        selected_indicator = indicators_by_id[mapping.indicator_id]
+        calculation_type = selected_indicator.get("calculation_type") or "direct"
+        if not mapping.unit.strip():
+            raise HTTPException(422, f"Informe a unidade do indicador {selected_indicator['name']}.")
+        if calculation_type == "ratio":
+            if not mapping.numerator_field or not mapping.denominator_field or mapping.numerator_field == mapping.denominator_field:
+                raise HTTPException(422, f"Escolha numerador e denominador diferentes para {selected_indicator['name']}.")
+        elif not mapping.value_field:
+            raise HTTPException(422, f"Escolha a coluna de valor para {selected_indicator['name']}.")
+        selected_mappings.append({
+            "indicator_id": mapping.indicator_id,
+            "indicator_code": selected_indicator["code"],
+            "indicator_name": selected_indicator["name"],
+            "calculation_type": calculation_type,
+            "calculation_multiplier": float(selected_indicator.get("calculation_multiplier") or 1),
+            "value_field": mapping.value_field,
+            "numerator_field": mapping.numerator_field,
+            "denominator_field": mapping.denominator_field,
+            "unit": mapping.unit.strip(),
+            "prepared_field": f"decsys_value__{selected_indicator['code']}",
+        })
+
+    ensure_municipal_catalog_registered()
+    staged_rows = fetch_rows_for_municipality_resolution(import_id, approval.sheet_name)
+    resolve_municipality = municipality_code_resolver(ibge_municipality_catalog())
+    prepared_rows, preparation_summary = prepare_rows_for_batch_approval(staged_rows, approval.period, selected_mappings, approval.municipality_field, resolve_municipality)
+    upsert_staged_rows(import_id, approval.sheet_name, prepared_rows, "Nao foi possivel preparar os valores selecionados antes da aprovacao.")
+    batch_response = httpx.post(
+        supabase_url("/rest/v1/rpc/approve_municipal_import_batch"),
+        headers=supabase_headers(),
+        json={"selected_import_id": import_id, "selected_mappings": [{"indicator_id": mapping["indicator_id"], "indicator_code": mapping["indicator_code"], "prepared_field": mapping["prepared_field"], "observation_unit": mapping["unit"]} for mapping in selected_mappings], "selected_sheet_name": approval.sheet_name},
+        timeout=600.0,
+    )
+    if batch_response.status_code == 404:
+        raise HTTPException(503, "Execute a migration 0019_batch_municipal_approval.sql no Supabase para gravar varios indicadores de uma vez.")
+    if not batch_response.is_success:
+        raise upstream_error("Nao foi possivel aprovar os indicadores selecionados.", batch_response)
+    publication_summary = batch_response.json()
+    approved_by_indicator = {item["indicator_id"]: item["approved_rows"] for item in publication_summary.get("indicators", [])}
+    indicator_results = []
+    for mapping in selected_mappings:
+        indicator_id = mapping["indicator_id"]
+        indicator_results.append({"indicator_id": indicator_id, "indicator_code": mapping["indicator_code"], "indicator_name": mapping["indicator_name"], "approved_rows": approved_by_indicator.get(indicator_id, 0), **preparation_summary["indicator_problems"][indicator_id]})
+    return {"import_id": import_id, "status": publication_summary.get("status", "needs_review"), "approved_value_count": publication_summary.get("approved_value_count", 0), "period_problem_count": len(preparation_summary["period_problems"]), "period_problems": preparation_summary["period_problems"][:5], "municipality_problem_count": len(preparation_summary["municipality_problems"]), "municipality_problems": preparation_summary["municipality_problems"][:5], "indicator_results": indicator_results}
 
 
 @app.post("/imports/{import_id}/municipal-preview")
@@ -1771,6 +1914,87 @@ def prepare_rows_for_approval(staged_rows: list[dict[str, Any]], period: PeriodS
     return prepared_rows, period_problems, value_problems, municipality_problems
 
 
+def prepare_rows_for_batch_approval(staged_rows: list[dict[str, Any]], period: PeriodSelection, mappings: list[dict[str, Any]], municipality_field: str, resolve_municipality: Any) -> tuple[list[tuple[dict[str, Any], dict[str, Any]]], dict[str, Any]]:
+    prepared_rows: list[tuple[dict[str, Any], dict[str, Any]]] = []
+    period_problems: list[dict[str, Any]] = []
+    municipality_problems: list[dict[str, Any]] = []
+    indicator_problems = {mapping["indicator_id"]: {"value_problem_count": 0, "value_problems": []} for mapping in mappings}
+
+    for staged_row in staged_rows:
+        normalized_row = dict(staged_row.get("normalized_row") or {})
+        source_row = {**(staged_row.get("raw_row") or {}), **normalized_row}
+        resolved_code = resolve_municipality(source_row.get(municipality_field))
+        normalized_row[approval_municipality_field] = resolved_code
+        if not resolved_code:
+            municipality_problems.append({"row_number": staged_row["row_number"], "value": cell_text(source_row.get(municipality_field))})
+
+        if period.mode == "prepared":
+            selected_period = parse_date_period(source_row.get("reference_period")) if source_row.get("reference_period") else None
+            selected_year = parse_year(source_row.get("reference_year"))
+            if selected_period:
+                selected_year = selected_period[0]
+                if period.granularity == "year":
+                    selected_period = (selected_year, None)
+                elif selected_period[1] is None:
+                    selected_period = None
+            elif selected_year and period.granularity == "year":
+                selected_period = (selected_year, None)
+            if selected_period and valid_period(*selected_period):
+                normalized_row["reference_year"] = str(selected_period[0])
+                if selected_period[1]:
+                    normalized_row["reference_period"] = f"{selected_period[0]}-{selected_period[1]:02d}-01"
+                else:
+                    normalized_row.pop("reference_period", None)
+            else:
+                period_problems.append({"row_number": staged_row["row_number"], "value": cell_text(source_row.get("reference_period") or source_row.get("reference_year"))})
+        else:
+            normalized_row.pop("reference_year", None)
+            normalized_row.pop("reference_period", None)
+            selected_period, original_period = resolve_row_period(source_row, period)
+            if selected_period:
+                normalized_row["reference_year"] = str(selected_period[0])
+                if selected_period[1]:
+                    normalized_row["reference_period"] = f"{selected_period[0]}-{selected_period[1]:02d}-01"
+            else:
+                period_problems.append({"row_number": staged_row["row_number"], "value": original_period})
+
+        indicator_values = dict(normalized_row.get("indicator_values") or {})
+        indicator_calculations = dict(normalized_row.get("indicator_calculations") or {})
+        for mapping in mappings:
+            selected_indicator_id = mapping["indicator_id"]
+            if mapping["calculation_type"] == "ratio":
+                numerator_text = parse_numeric_value(source_row.get(mapping["numerator_field"]))
+                denominator_text = parse_numeric_value(source_row.get(mapping["denominator_field"]))
+                try:
+                    denominator = Decimal(denominator_text) if denominator_text is not None else Decimal(0)
+                    calculated_value = Decimal(numerator_text) / denominator * Decimal(str(mapping["calculation_multiplier"])) if numerator_text is not None and denominator != 0 else None
+                except (InvalidOperation, ZeroDivisionError):
+                    calculated_value = None
+                value_text = format(calculated_value, "f") if calculated_value is not None else None
+                if value_text and "." in value_text:
+                    value_text = value_text.rstrip("0").rstrip(".")
+                calculation = {"type": "ratio", "numerator_field": mapping["numerator_field"], "denominator_field": mapping["denominator_field"], "multiplier": mapping["calculation_multiplier"]}
+                source_measure = f"{cell_text(source_row.get(mapping['numerator_field']))} / {cell_text(source_row.get(mapping['denominator_field']))}"
+            else:
+                value_text = parse_numeric_value(source_row.get(mapping["value_field"]))
+                calculation = {"type": "direct", "value_field": mapping["value_field"]}
+                source_measure = cell_text(source_row.get(mapping["value_field"]))
+
+            normalized_row[mapping["prepared_field"]] = value_text
+            indicator_values[mapping["indicator_code"]] = value_text
+            indicator_calculations[mapping["indicator_code"]] = calculation
+            if value_text is None:
+                indicator_problems[selected_indicator_id]["value_problem_count"] += 1
+                if len(indicator_problems[selected_indicator_id]["value_problems"]) < 5:
+                    indicator_problems[selected_indicator_id]["value_problems"].append({"row_number": staged_row["row_number"], "value": source_measure})
+
+        normalized_row["indicator_values"] = indicator_values
+        normalized_row["indicator_calculations"] = indicator_calculations
+        prepared_rows.append((staged_row, normalized_row))
+
+    return prepared_rows, {"period_problems": period_problems, "municipality_problems": municipality_problems, "indicator_problems": indicator_problems}
+
+
 def annual_period_from_column_name(column_name: str) -> int | None:
     if monthly_period_from_column_name(column_name):
         return None
@@ -2092,6 +2316,7 @@ def include_remaining_import_sheets(import_id: str) -> dict[str, Any]:
     for start_index in range(0, len(staged_rows), 500):
         rows_response = httpx.post(
             supabase_url("/rest/v1/import_rows"),
+            params={"on_conflict": "import_id,sheet_name,row_number"},
             headers=supabase_headers("resolution=ignore-duplicates"),
             json=staged_rows[start_index:start_index + 500],
             timeout=60.0,
@@ -2112,6 +2337,7 @@ def include_remaining_import_sheets(import_id: str) -> dict[str, Any]:
         })
     sheets_response = httpx.post(
         supabase_url("/rest/v1/import_sheets"),
+        params={"on_conflict": "import_id,sheet_name"},
         headers=supabase_headers("resolution=merge-duplicates"),
         json=sheet_records,
         timeout=30.0,
