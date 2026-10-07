@@ -1,0 +1,202 @@
+[
+ {
+  "code": "MOB01",
+  "dimension": "Mobilidade",
+  "factor": "Acessibilidade temporal",
+  "name": "Proporção de trabalhadores com deslocamento superior a 60 minutos",
+  "definition": "Pessoas ocupadas com trajeto casa-trabalho > 60 min divididas pelas que se deslocam.",
+  "unit": "%",
+  "source": "IBGE — Censo Demográfico/SIDRA",
+  "officialLink": "https://microdados.ibge.gov.br/",
+  "access": "link",
+  "importUrl": "https://apisidra.ibge.gov.br/values/t/10333/n6/all/v/13377/p/last/c537/all/c1568/120704/c58/95253/c86/95251",
+  "manualUrl": "https://sidra.ibge.gov.br/tabela/10333",
+  "steps": "Cole o importUrl: a tabela 10333 do Censo 2022 traz, por município, os ocupados que trabalham fora do domicílio por faixa de tempo habitual de deslocamento. Some 'Mais de uma hora até duas horas', 'Mais de duas horas até quatro horas' e 'Mais de quatro horas' e divida pelo Total.",
+  "needs": [],
+  "notes": "A tese aponta para microdados; existe tabela SIDRA municipal. Universo: ocupados de 10+ que trabalham fora do domicílio (não só quem volta diariamente). A faixa 'mais de meia hora até uma hora' inclui 60 min, então >60 min são as três faixas acima. Ano único: 2022.",
+  "verifiedOn": "2026-10-07"
+ },
+ {
+  "code": "MOB02",
+  "dimension": "Mobilidade",
+  "factor": "Mobilidade sustentável",
+  "name": "Participação dos modos sustentáveis nos deslocamentos",
+  "definition": "Deslocamentos a pé, bicicleta e transporte coletivo divididos pelo total de deslocamentos casa-trabalho/estudo.",
+  "unit": "%",
+  "source": "IBGE — Censo + SIMU/PEMOB + pesquisa origem-destino local",
+  "officialLink": "https://www.gov.br/cidades/pt-br/acesso-a-informacao/paineis-publicos-2/sistema-nacional-de-informacoes-em-mobilidade-urbana-simu",
+  "access": "link",
+  "importUrl": "https://apisidra.ibge.gov.br/values/t/10332/n6/all/v/13377/p/last/c2088/79488,79193,79194,79208,79209,79210/c1568/120704/c86/95251",
+  "manualUrl": "https://sidra.ibge.gov.br/tabela/10332",
+  "steps": "Cole o importUrl: a tabela 10332 do Censo 2022 dá, por município, ocupados por meio de transporte mais usado no trajeto ao trabalho (Total, A pé, Bicicleta, Ônibus, BRT, Trem ou metrô). Some a pé + bicicleta + ônibus + BRT + trem/metrô e divida pelo Total.",
+  "needs": [],
+  "notes": "Cobre só o deslocamento ao trabalho e não inclui pesquisa origem-destino local nem SIMU (painel do Ministério das Cidades, manual; a página retorna 403 a robôs). A API SIDRA limita 50 mil valores por consulta, por isso só 6 categorias foram pedidas; as demais (moto, automóvel etc.) saem de outra consulta alterando c2088. Ano único: 2022.",
+  "verifiedOn": "2026-10-07"
+ },
+ {
+  "code": "MOB03",
+  "dimension": "Mobilidade",
+  "factor": "Motorização",
+  "name": "Taxa de motorização",
+  "definition": "Automóveis e motocicletas registrados divididos pela população, x1.000.",
+  "unit": "veículos/1.000 hab.",
+  "source": "Senatran — Frota + IBGE",
+  "officialLink": "https://www.gov.br/transportes/pt-br/assuntos/transito/conteudo-Senatran/frota-de-veiculos-2025",
+  "access": "link",
+  "importUrl": "https://www.gov.br/transportes/pt-br/assuntos/transito/conteudo-Senatran/frota-de-veiculos-2026-2/Frota_por_municipio_e_tipo_Agosto_2026.xlsx",
+  "manualUrl": "https://www.gov.br/transportes/pt-br/assuntos/transito/conteudo-Senatran/frota-de-veiculos-2026",
+  "steps": "Cole o importUrl (frota por município e tipo, agosto/2026): colunas uf, municipio, total e uma coluna por tipo (automovel, motocicleta, onibus...). Taxa de motorização = frota (total, ou automóvel + motocicleta, conforme a definição) / população.",
+  "needs": [
+   "população por município (Censo 2022: SIDRA 4709, https://apisidra.ibge.gov.br/values/t/4709/n6/all/v/93/p/last ; estimativa anual: SIDRA 6579, https://apisidra.ibge.gov.br/values/t/6579/n6/all/v/9324/p/last)"
+  ],
+  "notes": "O arquivo traz nome do município e UF, sem código IBGE; é preciso casar por nome+UF. Há um xlsx por mês e o nome muda (padrão Frota_por_municipio_e_tipo_<Mês>_2026.xlsx, pasta frota-de-veiculos-2026-2). A página da tese (2025) está desatualizada: existe a de 2026. O curl recebe 403 com alguns user-agents, mas o app baixa normalmente.",
+  "verifiedOn": "2026-10-07"
+ },
+ {
+  "code": "MOB04",
+  "dimension": "Mobilidade",
+  "factor": "Transição energética",
+  "name": "Participação de veículos de baixa emissão",
+  "definition": "Veículos elétricos e híbridos divididos pela frota total compatível.",
+  "unit": "% da frota",
+  "source": "Senatran — Frota por combustível",
+  "officialLink": "https://www.gov.br/transportes/pt-br/assuntos/transito/conteudo-Senatran/frota-de-veiculos-2025",
+  "access": "link",
+  "importUrl": "https://www.gov.br/transportes/pt-br/assuntos/transito/conteudo-Senatran/frota-de-veiculos-2026-2/D_Frota_por_UF_Municipio_COMBUSTIVEL_Agosto_2026.xlsx",
+  "manualUrl": "https://www.gov.br/transportes/pt-br/assuntos/transito/conteudo-Senatran/frota-de-veiculos-2026",
+  "steps": "Cole o importUrl (frota por município e combustível, agosto/2026): formato longo com uf, municipio, combustivel_veiculo e qtd._veiculos. Agrupe por município e some as categorias de baixa emissão (elétrico, híbridos, etc., conforme a definição adotada) sobre o total.",
+  "needs": [],
+  "notes": "Sem código IBGE (casar por nome+UF). Defina o que conta como baixa emissão (flex e gasolina dominam a frota). O nome muda a cada mês (D_Frota_por_UF_Municipio_COMBUSTIVEL_<Mês>_2026.xlsx).",
+  "verifiedOn": "2026-10-07"
+ },
+ {
+  "code": "MOB05",
+  "dimension": "Mobilidade",
+  "factor": "Segurança viária",
+  "name": "Mortalidade no trânsito",
+  "definition": "Óbitos por acidentes de transporte de residentes divididos pela população, x100.000.",
+  "unit": "óbitos/100 mil hab.",
+  "source": "DATASUS — SIM + IBGE",
+  "officialLink": "https://www.gov.br/cidades/pt-br/acesso-a-informacao/paineis-publicos-2/sistema-nacional-de-informacoes-em-mobilidade-urbana-simu",
+  "access": "manual",
+  "manualUrl": "https://tabnet.datasus.gov.br/cgi/deftohtm.exe?sim/cnv/ext10br.def",
+  "steps": "No TabNet (SIM, óbitos por causas externas, Brasil) escolha Linha=Município, Coluna=Ano do óbito, Conteúdo=Óbitos por residência e, em Categoria CID-10, Acidentes de transporte (V01–V99). Use 'Copia como .CSV' e importe o arquivo.",
+  "needs": [
+   "população por município (Censo 2022: SIDRA 4709, https://apisidra.ibge.gov.br/values/t/4709/n6/all/v/93/p/last ; estimativa anual: SIDRA 6579, https://apisidra.ibge.gov.br/values/t/6579/n6/all/v/9324/p/last)"
+  ],
+  "notes": "Os arquivos brutos do SIM (.dbc em ftp.datasus.gov.br) exigem conversão. O portal OpenDataSUS foi refeito (sem API CKAN) e os caminhos S3 antigos (ckan.saude.gov.br/SIM/DO23OPEN.csv) deram 403, então nenhum CSV direto foi verificado. Taxa por 100 mil hab. = óbitos / população x 100 000. O painel SIMU retorna 403 a robôs.",
+  "verifiedOn": "2026-10-07"
+ },
+ {
+  "code": "MOB06",
+  "dimension": "Mobilidade",
+  "factor": "Cobertura do transporte público",
+  "name": "População a até 500 m de ponto/estação",
+  "definition": "População em setores/grade com centróide atendido por buffer de 500 m de paradas ativas.",
+  "unit": "% da população",
+  "source": "GTFS municipal/operadora + IBGE geoespacial",
+  "officialLink": "https://database.mobilitydata.org/",
+  "access": "local",
+  "manualUrl": "https://mobilitydata.org/",
+  "steps": "Peça à prefeitura ou à operadora o feed GTFS (stops.txt) e calcule a população a até 500 m das paradas cruzando com os setores censitários ou a grade estatística do Censo 2022.",
+  "needs": [
+   "paradas/estações (GTFS stops.txt da operadora)",
+   "população por setor censitário ou grade estatística do IBGE"
+  ],
+  "notes": "Não há base nacional por município; o catálogo database.mobilitydata.org bloqueia robôs (403). Procure o GTFS no portal de dados abertos da prefeitura ou da empresa de transporte.",
+  "verifiedOn": "2026-10-07"
+ },
+ {
+  "code": "MOB07",
+  "dimension": "Mobilidade",
+  "factor": "Oferta de transporte público",
+  "name": "Oferta programada de transporte coletivo",
+  "definition": "Km-veículo programados ou partidas em dia útil divididos pela população.",
+  "unit": "km-veículo/hab. ou partidas/1.000 hab.",
+  "source": "GTFS/operadora municipal",
+  "officialLink": "https://database.mobilitydata.org/",
+  "access": "local",
+  "manualUrl": "https://mobilitydata.org/",
+  "steps": "Obtenha o GTFS da operadora (stop_times.txt, trips.txt, calendar.txt) e some viagens ou km programados por dia útil; divida pela população atendida se a definição pedir.",
+  "needs": [
+   "GTFS da operadora (viagens programadas)",
+   "população por município (Censo 2022: SIDRA 4709, https://apisidra.ibge.gov.br/values/t/4709/n6/all/v/93/p/last ; estimativa anual: SIDRA 6579, https://apisidra.ibge.gov.br/values/t/6579/n6/all/v/9324/p/last)"
+  ],
+  "notes": "Cada cidade publica o seu GTFS (ou não); não há consolidado nacional acessível por link. mobilitydata.org retorna 403 a robôs.",
+  "verifiedOn": "2026-10-07"
+ },
+ {
+  "code": "MOB08",
+  "dimension": "Mobilidade",
+  "factor": "Mobilidade ativa",
+  "name": "Extensão da infraestrutura cicloviária",
+  "definition": "Km de ciclovias, ciclofaixas e vias compartilhadas qualificadas divididos pela população, x100.000.",
+  "unit": "km/100 mil hab.",
+  "source": "Prefeitura/OSM — Overpass",
+  "officialLink": "https://overpass-turbo.eu/",
+  "access": "manual",
+  "manualUrl": "https://overpass-turbo.eu/",
+  "steps": "Cole o importUrl (exemplo: ciclovias numa caixa de Curitiba) e troque as coordenadas (sul,oeste,norte,leste) pela caixa do município. Ele lista os trechos como CSV (id, highway, cycleway, name). Para o município inteiro use o Overpass Turbo com a mesma consulta e exporte.",
+  "needs": [
+   "comprimento dos trechos (calcule no QGIS ou Overpass Turbo)",
+   "área ou população do município"
+  ],
+  "notes": "O servidor público do Overpass é instável (timeout/504 intermitente): tente de novo após alguns segundos. Verificado: o app lê a saída [out:csv(...)] do Overpass (colunas @id, highway, cycleway, name). O JSON padrão NÃO serve: o app só enxerga as colunas version, generator, osm3s, elements. O CSV não traz comprimento (tentativa com convert/length() falhou por servidor ocupado e não foi verificada). Consultas com area[name=...] deram 504 no servidor público. Consulta reutilizável: [out:csv(::id,highway,cycleway,name;true;\",\")][timeout:25];way[\"highway\"=\"cycleway\"](S,W,N,L);out; (acrescente way[\"cycleway\"~\"lane|track\"]). OSM cobre só o que foi mapeado; a prefeitura é a fonte oficial. Reclassificado como manual: o Overpass público oscila (504) e o CSV não traz comprimento, então a consulta de exemplo fica apenas como ponto de partida: https://overpass-api.de/api/interpreter?data=%5Bout%3Acsv%28%3A%3Aid%2Chighway%2Ccycleway%2Cname%3Btrue%3B%22%2C%22%29%5D%5Btimeout%3A25%5D%3Bway%5B%22highway%22%3D%22cycleway%22%5D%28-25.45%2C-49.30%2C-25.42%2C-49.25%29%3Bout%3B",
+  "verifiedOn": "2026-10-07"
+ },
+ {
+  "code": "MOB09",
+  "dimension": "Mobilidade",
+  "factor": "Acessibilidade universal",
+  "name": "Acessibilidade da frota e dos pontos",
+  "definition": "Veículos e pontos de parada acessíveis divididos pelos totais operacionais.",
+  "unit": "%",
+  "source": "Prefeitura/operadora + SIMU/PEMOB",
+  "officialLink": "https://www.gov.br/cidades/pt-br/acesso-a-informacao/paineis-publicos-2/sistema-nacional-de-informacoes-em-mobilidade-urbana-simu",
+  "access": "link",
+  "importUrl": "https://ftp.ibge.gov.br/Perfil_Municipios/2024/Base_de_Dados/Base_MUNIC_2024_20251107.xlsx",
+  "manualUrl": "https://www.ibge.gov.br/estatisticas/sociais/saude/10586-pesquisa-de-informacoes-basicas-municipais.html",
+  "steps": "Cole o importUrl (Base MUNIC 2024, xlsx de ~25 MB), escolha a aba 'Transporte e mobilidade urbana' e use MTRA21 (frota de ônibus municipais adaptada para pessoas com deficiência ou mobilidade reduzida). A aba 'Dicionário' explica os códigos.",
+  "needs": [
+   "acessibilidade dos pontos/paradas (inventário da prefeitura)"
+  ],
+  "notes": "Proxy parcial: a MUNIC só informa se há frota adaptada (sem percentual nem acessibilidade dos pontos). O restante vem da operadora/prefeitura e do SIMU/PEMOB (403 a robôs). O xlsx tem 10 abas e o app pede qual usar.",
+  "verifiedOn": "2026-10-07"
+ },
+ {
+  "code": "MOB10",
+  "dimension": "Mobilidade",
+  "factor": "Digitalização do transporte",
+  "name": "Maturidade digital do transporte coletivo",
+  "definition": "Checklist: GTFS estático, tempo real, bilhetagem eletrônica/interoperável, informação ao usuário e dados abertos.",
+  "unit": "índice 0–5",
+  "source": "Prefeitura/operadora + SIMU/PEMOB",
+  "officialLink": "https://www.gov.br/cidades/pt-br/acesso-a-informacao/paineis-publicos-2/sistema-nacional-de-informacoes-em-mobilidade-urbana-simu",
+  "access": "link",
+  "importUrl": "https://ftp.ibge.gov.br/Perfil_Municipios/2024/Base_de_Dados/Base_MUNIC_2024_20251107.xlsx",
+  "manualUrl": "https://www.ibge.gov.br/estatisticas/sociais/saude/10586-pesquisa-de-informacoes-basicas-municipais.html",
+  "steps": "Cole o importUrl (Base MUNIC 2024), escolha a aba 'Informática e comunicação' e use MTIC261 (bilhete/cartão eletrônico no transporte público) e MTIC262 (GPS nos ônibus enviando localização e velocidade). O 'Dicionário' lista outras variáveis.",
+  "needs": [
+   "app de informação ao usuário, tarifa digital e dados abertos de transporte (levantamento com a operadora)"
+  ],
+  "notes": "Proxy parcial com sim/não da MUNIC 2024; a maturidade completa exige consulta à operadora ou ao SIMU/PEMOB. O xlsx tem 10 abas e o app pede qual usar.",
+  "verifiedOn": "2026-10-07"
+ },
+ {
+  "code": "MOB11",
+  "dimension": "Mobilidade",
+  "factor": "Plano de mobilidade urbana",
+  "name": "Existência e implementação do PlanMob",
+  "definition": "Municípios > 20 mil hab. são obrigados (Lei 12.587/2012) a ter Plano de Mobilidade Urbana.",
+  "unit": "escala 0–2",
+  "source": "Ministério das Cidades — SEMOB",
+  "officialLink": "https://www.gov.br/cidades/pt-br/assuntos/mobilidade-urbana",
+  "access": "link",
+  "importUrl": "https://ftp.ibge.gov.br/Perfil_Municipios/2024/Base_de_Dados/Base_MUNIC_2024_20251107.xlsx",
+  "manualUrl": "https://www.ibge.gov.br/estatisticas/sociais/saude/10586-pesquisa-de-informacoes-basicas-municipais.html",
+  "steps": "Cole o importUrl (Base MUNIC 2024), escolha a aba 'Transporte e mobilidade urbana' e use MTRA07 (Plano Municipal de Transporte, existência) e MTRA24b (Plano Diretor Cicloviário). Confirme a implementação com o órgão gestor.",
+  "needs": [],
+  "notes": "A MUNIC pergunta pelo Plano Municipal de Transporte, que não é exatamente o PlanMob (Lei 12.587). O painel/cadastro do Ministério das Cidades retorna 403 a robôs (acesso manual). O link da tese é a página geral de mobilidade.",
+  "verifiedOn": "2026-10-07"
+ }
+]

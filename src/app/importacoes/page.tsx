@@ -93,7 +93,7 @@ export default function SavedImportsPage() {
         <div><p className={styles.eyebrow}>IMPORTAÇÕES</p><h2>Fontes guardadas</h2></div>
         <div className={styles.rowActions}>
           <button disabled={isLoading} onClick={reloadImports} type="button"><RefreshCw size={14} /> Atualizar</button>
-          <Link className={styles.primaryLink} href="/"><Plus size={16} />Nova importação</Link>
+          <Link className={styles.primaryLink} href="/importar"><Plus size={16} />Nova importação</Link>
         </div>
       </div>
       <div className={styles.sourceForm}><label>Situação<select onChange={(event) => setStatusFilter(event.target.value)} value={statusFilter}>{statusFilters.map((filter) => <option key={filter.value} value={filter.value}>{filter.label}</option>)}</select></label></div>
@@ -109,7 +109,7 @@ export default function SavedImportsPage() {
           <td>{savedImport.total_rows.toLocaleString("pt-BR")}</td>
           <td>{formatDate(savedImport.created_at)}</td>
           <td><div className={styles.rowActions}>
-            <Link href={{ pathname: "/", query: { importId: savedImport.id } }}>Abrir</Link>
+            <Link href={{ pathname: "/importar", query: { importId: savedImport.id } }} onClick={(event) => { event.preventDefault(); window.location.assign(event.currentTarget.href); }}>Abrir</Link>
             <a href={`/api/imports/${encodeURIComponent(savedImport.id)}/export/csv`}>CSV</a>
             <a href={`/api/imports/${encodeURIComponent(savedImport.id)}/export/xlsx`}>XLSX</a>
             {savedImport.status !== "approved" ? <button className={styles.dangerButton} disabled={discardingId === savedImport.id} onClick={() => void discardImport(savedImport)} type="button">{discardingId === savedImport.id ? "Descartando..." : "Descartar"}</button> : null}

@@ -1,0 +1,185 @@
+[
+ {
+  "code": "ECO01",
+  "dimension": "Economia",
+  "factor": "Produtividade",
+  "name": "PIB municipal per capita",
+  "definition": "PIB municipal a preços correntes dividido pela população residente do mesmo ano.",
+  "unit": "R$/hab.",
+  "source": "IBGE — PIB dos Municípios + população",
+  "officialLink": "https://www.ibge.gov.br/estatisticas/economicas/contas-nacionais/9088-produto-interno-bruto-dos-municipios.html?=&t=pib-por-municipio",
+  "access": "link",
+  "importUrl": "https://apisidra.ibge.gov.br/values/t/5938/n6/all/v/37/p/last",
+  "manualUrl": "https://sidra.ibge.gov.br/tabela/5938",
+  "steps": "Cole o link: devolve o PIB a preços correntes (variável 37, mil R$) de todos os municípios no ano mais recente. Divida pela população do mesmo ano para obter o PIB per capita.",
+  "needs": [
+   "População municipal do mesmo ano (SIDRA 6579 var. 9324 ou 4709 var. 93)"
+  ],
+  "notes": "Último ano disponível: 2023. Para outro ano troque /p/last por /p/2021 etc. População: https://apisidra.ibge.gov.br/values/t/6579/n6/all/v/9324/p/last (estimativa, hoje 2026) ou /t/4709/n6/all/v/93/p/last (Censo 2022); use população do mesmo ano do PIB (a série 6579 tem anos anteriores, ex.: /p/2023). O link da tese (página do IBGE) é só descritivo e dá 403 no app; a API SIDRA é o caminho.",
+  "verifiedOn": "2026-10-07"
+ },
+ {
+  "code": "ECO02",
+  "dimension": "Economia",
+  "factor": "Estrutura econômica",
+  "name": "Participação do VAB industrial e de serviços",
+  "definition": "VAB da indústria e dos serviços dividido pelo VAB total municipal, por setor.",
+  "unit": "% do VAB",
+  "source": "IBGE — PIB dos Municípios",
+  "officialLink": "https://www.ibge.gov.br/estatisticas/economicas/contas-nacionais/9088-produto-interno-bruto-dos-municipios.html?=&t=resultados",
+  "access": "link",
+  "importUrl": "https://apisidra.ibge.gov.br/values/t/5938/n6/all/v/37,517,6575,513,525/p/last",
+  "manualUrl": "https://sidra.ibge.gov.br/tabela/5938",
+  "steps": "Cole o link: traz PIB (37) e VAB agropecuário (513), industrial (517), serviços (6575) e administração pública (525) por município. Calcule (517+6575)/VAB total ou a participação de cada setor.",
+  "needs": [
+   "VAB total = soma de 513+517+6575+525"
+  ],
+  "notes": "Último ano: 2023, valores em mil R$. Confira a coluna de variável antes de pivotar (linhas longas município x variável). O VAB total é a soma das quatro variáveis setoriais; o PIB (37) inclui impostos e não serve de denominador de VAB.",
+  "verifiedOn": "2026-10-07"
+ },
+ {
+  "code": "ECO03",
+  "dimension": "Economia",
+  "factor": "Mercado de trabalho",
+  "name": "Densidade de empregos formais",
+  "definition": "Estoque de vínculos formais em 31/12 dividido pela população de 18 a 64 anos, x100.",
+  "unit": "vínculos/100 hab. 18–64",
+  "source": "MTE — RAIS + IBGE",
+  "officialLink": "Comunicado - Estoque de Referência de 2026 — MTE",
+  "access": "link",
+  "importUrl": "https://apisidra.ibge.gov.br/values/t/9509/n6/all/v/707,708/p/last",
+  "manualUrl": "http://pdet.mte.gov.br/",
+  "steps": "Link aproximado: CEMPRE/IBGE (derivado da RAIS) traz pessoal ocupado total (707) e assalariado (708) por município. Divida pela população de 18 a 64 anos (Censo 2022, SIDRA 9514) e multiplique por 100. Para o estoque de vínculos RAIS oficial, baixe a RAIS Vínculos no PDET.",
+  "needs": [
+   "População de 18 a 64 anos por município (SIDRA 9514, Censo 2022)"
+  ],
+  "notes": "CEMPRE 2024 (SIDRA 9509, anos 2022–2024) é o proxy com API; pessoal ocupado assalariado não é idêntico a vínculos formais em 31/12 da RAIS. A RAIS oficial por município está nos microdados do PDET (arquivos .7z por UF, ftp.mtps.gov.br, não HTTPS e não lido pelo app) ou no BI do PDET (navegador). O 'link' da tese é só o título de um comunicado, sem URL. Não consegui validar as páginas do PDET/gov.br (gov.br responde 403).",
+  "verifiedOn": "2026-10-07"
+ },
+ {
+  "code": "ECO04",
+  "dimension": "Economia",
+  "factor": "Renda do trabalho",
+  "name": "Remuneração média do emprego formal",
+  "definition": "Média da remuneração mensal dos vínculos formais; deflacionar para um ano-base em série temporal.",
+  "unit": "R$/mês",
+  "source": "MTE — RAIS",
+  "officialLink": "https://drive.google.com/drive/folders/1SLFCZ184KseNP8W9Xc6YMe6rCrHeuaiU",
+  "access": "link",
+  "importUrl": "https://apisidra.ibge.gov.br/values/t/9509/n6/all/v/10143,1606/p/last",
+  "manualUrl": "http://pdet.mte.gov.br/",
+  "steps": "Link aproximado: salário médio mensal em reais (var. 10143) e em salários mínimos (1606) por município, CEMPRE 2024. Para a remuneração média exata da RAIS use o BI/microdados do PDET.",
+  "needs": [
+   "Deflator (IPCA) se for montar série temporal"
+  ],
+  "notes": "CEMPRE 2024 é a fonte máquina-legível; o conceito é salário médio mensal das unidades locais (base RAIS), não idêntico à remuneração média da RAIS. O link da tese aponta para uma pasta do Google Drive que não consegui validar e que o app não lê como tabela.",
+  "verifiedOn": "2026-10-07"
+ },
+ {
+  "code": "ECO05",
+  "dimension": "Economia",
+  "factor": "Dinamismo do emprego",
+  "name": "Saldo de empregos formais",
+  "definition": "Admissões menos desligamentos no ano, dividido pela população de 18 a 64 anos, x1.000.",
+  "unit": "saldo/1.000 hab. 18–64",
+  "source": "MTE — Novo Caged + IBGE",
+  "officialLink": "https://www.gov.br/trabalho-e-emprego/pt-br/acesso-a-informacao/acoes-e-programas/programas-projetos-acoes-obras-e-atividades/estatisticas-trabalho/rais/rais-2025/rais-2025",
+  "access": "manual",
+  "manualUrl": "https://www.gov.br/trabalho-e-emprego/pt-br/assuntos/estatisticas-trabalho",
+  "steps": "No PDET, abra Novo Caged e baixe admissões e desligamentos por município (BI ou microdados mensais) e agregue o ano. Divida o saldo pela população de 18 a 64 anos (x1.000).",
+  "needs": [
+   "População de 18 a 64 anos por município (SIDRA 9514, Censo 2022)"
+  ],
+  "notes": "Microdados do Novo Caged são .7z mensais em ftp.mtps.gov.br (não HTTPS, formato não suportado pelo app); o BI do PDET exige navegador. O link da tese leva à página RAIS 2025, que não tem saldo do Caged; o correto é a página do Novo Caged. Não validei as páginas do PDET. Na página de estatísticas do trabalho procure \"Novo Caged\" (o endereço direto do PDET não respondeu na verificação).",
+  "verifiedOn": "2026-10-07"
+ },
+ {
+  "code": "ECO06",
+  "dimension": "Economia",
+  "factor": "Empreendedorismo",
+  "name": "Densidade de estabelecimentos formais",
+  "definition": "Estabelecimentos ativos na RAIS dividido pela população residente, x1.000.",
+  "unit": "estab./1.000 hab.",
+  "source": "MTE — RAIS Estabelecimentos + IBGE",
+  "officialLink": "https://www.gov.br/trabalho-e-emprego/pt-br/acesso-a-informacao/acoes-e-programas/programas-projetos-acoes-obras-e-atividades/estatisticas-trabalho/rais/rais-2025/rais-2025",
+  "access": "link",
+  "importUrl": "https://apisidra.ibge.gov.br/values/t/9509/n6/all/v/706,367/p/last",
+  "manualUrl": "http://pdet.mte.gov.br/",
+  "steps": "Cole o link: número de unidades locais (706) e de empresas atuantes (367) por município, CEMPRE 2024. Divida pela população e multiplique por 1.000.",
+  "needs": [
+   "População municipal do mesmo ano (SIDRA 6579 ou 4709)"
+  ],
+  "notes": "Proxy IBGE/CEMPRE (cadastro com base em RAIS e CNPJ), último ano 2024. A RAIS Estabelecimentos oficial está no PDET (navegador/ftp). O link da tese aponta para a página geral da RAIS 2025, sem tabela municipal.",
+  "verifiedOn": "2026-10-07"
+ },
+ {
+  "code": "ECO07",
+  "dimension": "Economia",
+  "factor": "Ambiente de negócios",
+  "name": "Facilidade para abertura de empresas",
+  "definition": "Tempo médio para abertura de CNPJ no município.",
+  "unit": "dias",
+  "source": "REDESIM — Junta Comercial",
+  "officialLink": "https://estatistica.redesim.gov.br/tempos-abertura",
+  "access": "manual",
+  "manualUrl": "https://estatistica.redesim.gov.br/tempos-abertura",
+  "steps": "Abra o painel Estatísticas CNPJ do REDESIM, na seção de tempos de abertura, filtre município/UF e anote ou exporte os tempos médios. Não há API pública conhecida.",
+  "needs": [],
+  "notes": "A página responde 200, mas é um app Angular (JS) sem arquivo de dados público; o app de importação não lê. Granularidade municipal não verificada; se não houver, trate como dado local (Junta Comercial/prefeitura).",
+  "verifiedOn": "2026-10-07"
+ },
+ {
+  "code": "ECO08",
+  "dimension": "Economia",
+  "factor": "Inovação e conhecimento",
+  "name": "Emprego em setores intensivos em conhecimento",
+  "definition": "Vínculos formais em CNAEs de alta/média-alta tecnologia ou serviços intensivos em conhecimento, divididos pelo total de vínculos.",
+  "unit": "% dos vínculos",
+  "source": "MTE — RAIS por CNAE",
+  "officialLink": "https://www.gov.br/trabalho-e-emprego/pt-br/acesso-a-informacao/acoes-e-programas/programas-projetos-acoes-obras-e-atividades/estatisticas-trabalho/rais/rais-2025/rais-2025",
+  "access": "link",
+  "importUrl": "https://apisidra.ibge.gov.br/values/t/9510/n6/all/v/707/p/last/c12762/117897,117082,117159,117555,117673,117608",
+  "manualUrl": "http://pdet.mte.gov.br/",
+  "steps": "Link aproximado: pessoal ocupado (707) por município no total (117897) e nos setores 21 (farmacêutica), 26 (informática/eletrônicos), J (informação e comunicação), M (profissionais e científicas) e K (financeiro). Some os setores intensivos em conhecimento e divida pelo total; ajuste as categorias CNAE à sua definição.",
+  "needs": [],
+  "notes": "CEMPRE 2024, SIDRA 9510 (classificação 12762). Pedir as 109 categorias de uma vez excede o limite da API, por isso a lista curta. Outros códigos para trocar na URL: 62 TI=117594, 63=117601, 72 P&D=117692. Para RAIS por CNAE exato, use PDET (manual).",
+  "verifiedOn": "2026-10-07"
+ },
+ {
+  "code": "ECO09",
+  "dimension": "Economia",
+  "factor": "Inserção externa",
+  "name": "Exportações municipais per capita",
+  "definition": "Valor FOB exportado segundo o domicílio fiscal do exportador, dividido pela população.",
+  "unit": "US$/hab.",
+  "source": "MDIC — Comex Stat + IBGE",
+  "officialLink": "https://www.gov.br/mdic/pt-br/assuntos/comercio-exterior/estatisticas/base-de-dados-bruta",
+  "access": "manual",
+  "manualUrl": "https://comexstat.mdic.gov.br/pt/municipio",
+  "steps": "No Comex Stat, aba Município, selecione Exportação, o ano e baixe o CSV. Alternativa: EXP_<ano>_MUN.csv em balanca.economia.gov.br/balanca/bd/comexstat-bd/mun/ pelo navegador. Divida o valor FOB pela população.",
+  "needs": [
+   "População municipal do mesmo ano (SIDRA 6579 ou 4709)"
+  ],
+  "notes": "O CSV bruto EXP_2025_MUN.csv existe (cerca de 60 MB), mas balanca.economia.gov.br está com certificado TLS expirado: o app falha (502) e o navegador alerta. A página gov.br da tese responde 403. A API api-comexstat.mdic.gov.br responde, mas não validei consulta municipal. Quando o certificado for corrigido, o link do CSV passa a servir ao app.",
+  "verifiedOn": "2026-10-07"
+ },
+ {
+  "code": "ECO10",
+  "dimension": "Economia",
+  "factor": "Capacidade inovadora",
+  "name": "Depósitos de patentes por 100 mil habitantes",
+  "definition": "Pedidos de patente com depositante/inventor no município, dividido pela população, x100.000.",
+  "unit": "pedidos/100 mil hab.",
+  "source": "INPI — estatísticas e bases de propriedade industrial",
+  "officialLink": "https://www.gov.br/inpi/pt-br/servicos/patentes/acessos-as-bases-de-pesquisas",
+  "access": "manual",
+  "manualUrl": "https://dadosabertos.inpi.gov.br/index/patentes/",
+  "steps": "Baixe PATENTES_DEPOSITANTES.csv (e DADOS_BIBLIOGRAFICOS) em dadosabertos.inpi.gov.br e filtre por depositante; a base traz só estado, sem município. Para o município, cruze pelo CNPJ com o cadastro da Receita.",
+  "needs": [
+   "População municipal (SIDRA 6579 ou 4709)",
+   "CNPJ para município (Receita Federal) para geocodificar"
+  ],
+  "notes": "Os CSVs existem (200 OK), mas PATENTES_DEPOSITANTES.csv tem cerca de 411 MB (acima do limite de 200 MB do app) e só tem país/estado. A tese aponta para página gov.br (403 ao app). Sem geocodificação, só é viável por UF.",
+  "verifiedOn": "2026-10-07"
+ }
+]
