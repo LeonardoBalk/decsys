@@ -40,6 +40,7 @@ export default function IiuConfigurationPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [isSavingWeights, setIsSavingWeights] = useState(false);
   const [isSavingBenchmark, setIsSavingBenchmark] = useState(false);
+  const [isSuggesting, setIsSuggesting] = useState(false);
   const [refreshAttempt, setRefreshAttempt] = useState(0);
   const [notice, setNotice] = useState<{ variant: "success" | "error" | "loading" | "warning"; message: string } | null>(null);
 
@@ -94,6 +95,24 @@ export default function IiuConfigurationPage() {
     }
   }
 
+  async function suggestBenchmark() {
+    if (!selectedIndicator) return;
+    setIsSuggesting(true);
+    setNotice(null);
+    try {
+      const response = await fetch(`/api/iiu-configuration/benchmark-suggestion?indicator_code=${encodeURIComponent(selectedIndicator.code)}`, { cache: "no-store" });
+      if (!response.ok) throw new Error(await importErrorMessage(response, "Não foi possível sugerir uma faixa para este indicador."));
+      const suggestion = await response.json() as { minimum_value: number; maximum_value: number; sample_size: number; reference_period_from: string; reference_period_to: string };
+      setMinimumValue(String(suggestion.minimum_value));
+      setMaximumValue(String(suggestion.maximum_value));
+      setNotice({ variant: "success", message: `Faixa sugerida com base em ${new Intl.NumberFormat("pt-BR").format(suggestion.sample_size)} municípios (percentis 10 e 90). Confira os valores e clique em salvar para aplicar neste porte.` });
+    } catch (suggestError: unknown) {
+      setNotice({ variant: "error", message: suggestError instanceof Error ? suggestError.message : "Não foi possível sugerir uma faixa para este indicador." });
+    } finally {
+      setIsSuggesting(false);
+    }
+  }
+
   async function saveBenchmark(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selectedIndicator) return;
@@ -137,6 +156,8 @@ export default function IiuConfigurationPage() {
             <p className={styles.fieldNote}>Unidade cadastrada: {selectedIndicator.unit}. Defina os limites que serão usados para normalizar os dados deste porte.</p>
             <label>Valor mínimo<input onChange={(event) => setMinimumValue(event.target.value)} required step="any" type="number" value={minimumValue} /></label>
             <label>Valor máximo<input onChange={(event) => setMaximumValue(event.target.value)} required step="any" type="number" value={maximumValue} /></label>
+            <button className={styles.secondaryLink} disabled={isSuggesting || isSavingBenchmark} onClick={() => void suggestBenchmark()} type="button">{isSuggesting ? "Calculando..." : "Sugerir pela base importada"}</button>
+            <p className={styles.fieldNote}>A sugestão usa os percentis 10 e 90 do valor mais recente de cada município já aprovado. Precisa de pelo menos 30 municípios.</p>
             <button className={styles.primaryButton} disabled={isSavingBenchmark || !minimumValue || !maximumValue || Number(minimumValue) >= Number(maximumValue)} type="submit">{isSavingBenchmark ? "Salvando referência..." : "Salvar referência"}</button>
           </> : null}
         </form> : <StatusNotice variant="info">Não há indicadores habilitados para o IIU no catálogo.</StatusNotice>}

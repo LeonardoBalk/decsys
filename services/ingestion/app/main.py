@@ -1264,6 +1264,52 @@ def update_iiu_indicator_benchmark(configuration: IiuBenchmarkUpdate) -> dict[st
     return save_response.json()
 
 
+benchmark_suggestion_minimum_sample = 30
+
+
+def percentile(sorted_values: list[float], fraction: float) -> float:
+    position = (len(sorted_values) - 1) * fraction
+    lower_index = int(position)
+    upper_index = min(lower_index + 1, len(sorted_values) - 1)
+    return sorted_values[lower_index] + (sorted_values[upper_index] - sorted_values[lower_index]) * (position - lower_index)
+
+
+def latest_value_per_municipality(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    latest: dict[str, dict[str, Any]] = {}
+    for row in rows:
+        municipality_code = (row.get("dimensions") or {}).get("municipality_ibge_code")
+        if not municipality_code or row.get("value") is None:
+            continue
+        current = latest.get(municipality_code)
+        if current is None or row["reference_period"] > current["reference_period"]:
+            latest[municipality_code] = row
+    return list(latest.values())
+
+
+@app.get("/iiu-configuration/benchmark-suggestion")
+def suggest_iiu_indicator_benchmark(indicator_code: str) -> dict[str, Any]:
+    """Sugere a faixa de referencia (percentis 10 e 90) a partir dos valores publicados de todos os municipios."""
+    collected: list[dict[str, Any]] = []
+    page_size = 1000
+    for page_start in range(0, 200_000, page_size):
+        page_response = httpx.get(supabase_url("/rest/v1/dashboard_values"), params={"indicator_code": f"eq.{indicator_code}", "select": "value,reference_period,dimensions", "order": "reference_period.desc,id", "limit": page_size, "offset": page_start}, headers=supabase_headers(), timeout=60.0)
+        if not page_response.is_success:
+            raise upstream_error("Não foi possível ler os valores publicados do indicador.", page_response)
+        page_rows = page_response.json()
+        collected.extend(page_rows)
+        if len(page_rows) < page_size:
+            break
+    municipal_rows = latest_value_per_municipality(collected)
+    sorted_values = sorted(float(row["value"]) for row in municipal_rows)
+    if len(sorted_values) < benchmark_suggestion_minimum_sample:
+        raise HTTPException(422, f"Há valores de {len(sorted_values)} município(s); são necessários pelo menos {benchmark_suggestion_minimum_sample} para sugerir uma faixa confiável.")
+    minimum_value, maximum_value = percentile(sorted_values, 0.10), percentile(sorted_values, 0.90)
+    if minimum_value >= maximum_value:
+        raise HTTPException(422, "Os valores publicados quase não variam entre os municípios, então não dá para sugerir uma faixa.")
+    reference_periods = sorted({row["reference_period"] for row in municipal_rows})
+    return {"indicator_code": indicator_code, "sample_size": len(sorted_values), "minimum_value": round(minimum_value, 4), "maximum_value": round(maximum_value, 4), "method": "percentis 10 e 90", "reference_period_from": reference_periods[0], "reference_period_to": reference_periods[-1], "observed_minimum": sorted_values[0], "observed_maximum": sorted_values[-1]}
+
+
 @app.get("/imports")
 def list_imports(status: str | None = None, limit: int = 100) -> list[dict[str, Any]]:
     query_parameters = {"select": "id,title,file_name,source_url,status,total_rows,created_at,updated_at", "order": "created_at.desc", "limit": str(max(1, min(limit, 500))), "status": "neq.discarded"}
