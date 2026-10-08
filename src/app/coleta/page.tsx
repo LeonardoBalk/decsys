@@ -34,12 +34,12 @@ function ItemRow({ item, onEdit, onRemove }: { item: CollectionEntry; onEdit: ()
     <details className={coleta.item}>
       <summary className={coleta.toggle}>
         <span className={coleta.code}>{item.code}</span>
-        <span><strong>{item.name}{item.origin !== "base" ? <em className={coleta.originTag}>{ORIGIN_LABELS[item.origin]}</em> : null}</strong><span className={coleta.meta}>{item.source} · {item.unit}</span></span>
+        <span><strong>{item.name}{item.origin !== "base" ? <em className={coleta.originTag}>{ORIGIN_LABELS[item.origin]}</em> : null}</strong><span className={coleta.meta}>{[item.source, item.unit].filter(Boolean).join(" · ") || "Sem fonte informada"}</span></span>
         <span className={`${coleta.badge} ${coleta[`badge_${item.access}`]}`}><AccessIcon size={13} />{ACCESS_LABELS[item.access]}</span>
         <ChevronRight aria-hidden className={coleta.chevron} size={16} />
       </summary>
       <div className={coleta.body}>
-        <p className={coleta.steps}>{item.steps}</p>
+        {item.steps ? <p className={coleta.steps}>{item.steps}</p> : null}
         {item.needs.length > 0 ? <p className={coleta.note}>Precisa também de: {item.needs.join("; ")}</p> : null}
         {item.notes ? <p className={coleta.note}>{item.notes}</p> : null}
         <ItemActions item={item} onEdit={onEdit} onRemove={onRemove} />

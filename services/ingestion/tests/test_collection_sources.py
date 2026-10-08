@@ -47,12 +47,19 @@ class CollectionSourcesTests(unittest.TestCase):
         self.assertRegex(sent["verified_on"], r"^\d{4}-\d{2}-\d{2}$")
         self.assertEqual(response.json()["importUrl"], VALID_LINK_SOURCE["importUrl"])
 
-    def test_link_source_requires_import_url(self):
-        body = {**VALID_LINK_SOURCE, "importUrl": ""}
-        with patch.object(main.httpx, "post") as post:
-            response = self.client.put("/collection-sources/ECO99", json=body)
-        self.assertEqual(response.status_code, 422)
-        post.assert_not_called()
+    def test_every_field_is_optional_and_gets_defaults(self):
+        with patch.object(main.httpx, "post", return_value=supabase_response([stored_row(code="FONTE_X", dimension="Outras", name="FONTE_X", access="manual", import_url=None, steps="")])) as post:
+            response = self.client.put("/collection-sources/fonte_x", json={})
+        self.assertEqual(response.status_code, 200)
+        sent = post.call_args.kwargs["json"]
+        self.assertEqual((sent["code"], sent["dimension"], sent["name"], sent["access"]), ("FONTE_X", "Outras", "FONTE_X", "manual"))
+        self.assertEqual((sent["steps"], sent["source"], sent["needs"]), ("", "", []))
+
+    def test_link_source_without_import_url_is_accepted(self):
+        with patch.object(main.httpx, "post", return_value=supabase_response([stored_row(import_url=None)])) as post:
+            response = self.client.put("/collection-sources/ECO99", json={**VALID_LINK_SOURCE, "importUrl": ""})
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(post.call_args.kwargs["json"]["import_url"])
 
     def test_links_must_be_https(self):
         with patch.object(main.httpx, "post") as post:
@@ -67,9 +74,8 @@ class CollectionSourcesTests(unittest.TestCase):
         self.assertEqual(response.status_code, 200)
         self.assertIsNone(post.call_args.kwargs["json"]["import_url"])
 
-    def test_invalid_code_and_missing_required_fields_are_rejected(self):
+    def test_invalid_code_and_access_are_rejected(self):
         self.assertEqual(self.client.put("/collection-sources/a-b", json=VALID_LINK_SOURCE).status_code, 422)
-        self.assertEqual(self.client.put("/collection-sources/ECO99", json={**VALID_LINK_SOURCE, "steps": "  "}).status_code, 422)
         self.assertEqual(self.client.put("/collection-sources/ECO99", json={**VALID_LINK_SOURCE, "access": "outro"}).status_code, 422)
 
     def test_list_returns_camel_case_items(self):
