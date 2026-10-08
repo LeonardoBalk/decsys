@@ -50,14 +50,15 @@ source_cache: dict[str, dict[str, Any]] = {}
 source_cache_lock = threading.Lock()
 ibge_catalog_ttl_seconds = 24 * 60 * 60
 ibge_catalog_cache: dict[str, Any] = {"expires_at": 0.0, "catalog": []}
+# Valores sinteticos da demonstracao, indexados pela sigla da matriz (o codigo completo do indicador comeca por ela).
 iiu_demonstration_values = {
-    "cobertura_do_transporte_publico": (65.0, "% população"), "tempo_medio_de_deslocamento": (42.0, "min/dia"),
-    "emissao_de_co2_per_capita": (3.2, "tCO₂/hab./ano"), "indice_de_perdas_hidricas": (32.0, "% do volume"), "participacao_de_energias_renovaveis": (47.0, "% da matriz local"),
-    "cobertura_da_atencao_basica_esf": (77.0, "% da população"), "cobertura_vacinal": (91.0, "% do público-alvo"), "taxa_de_mortalidade_infantil": (10.0, "por 1.000 NV"),
-    "taxa_de_homicidios": (13.0, "por 100k hab."), "taxa_de_roubos_e_furtos": (800.0, "por 100k hab."),
-    "cumprimento_da_lai": (8.0, "pontuação 0–10"), "digitalizacao_dos_servicos_publicos": (60.0, "% serviços online"),
-    "cobertura_de_banda_larga": (75.0, "% domicílios"), "pib_per_capita_municipal": (48500.0, "R$/hab./ano"), "taxa_de_formalizacao_do_emprego": (64.0, "% trabalhadores formais"),
-    "cobertura_de_agua_tratada": (91.0, "% da população"), "cobertura_de_esgoto_sanitario": (75.0, "% da população"), "deficit_habitacional": (6.0, "% dos domicílios"), "populacao_em_area_de_risco": (2.5, "% da população"),
+    "eco01": 48500.0, "eco02": 72.0, "eco03": 38.0, "eco04": 3100.0, "eco06": 26.0, "eco07": 9.0,
+    "pes01": 96.0, "pes02": 22.0, "pes03": 97.0, "pes05": 6.1, "pes07": 11.0,
+    "gov02": 3.0, "gov04": 78.0, "gov07": 35.0, "gov09": 48.0, "gov10": 55.0,
+    "mob01": 14.0, "mob02": 40.0, "mob03": 520.0, "mob05": 11.0, "mob10": 3.0,
+    "amb01": 91.0, "amb02": 72.0, "amb03": 60.0, "amb04": 38.0, "amb05": 94.0, "amb06": 24.0, "amb08": 30.0, "amb10": 3.2, "amb19": 55.0,
+    "qvi01": 10.0, "qvi02": 77.0, "qvi03": 2.2, "qvi04": 2.4, "qvi08": 13.0, "qvi10": 18.0, "qvi17": 9.0, "qvi24": 3.0,
+    "idd01": 78.0, "idd02": 70.0, "idd03": 88.0, "idd05": 2.0, "idd08": 5.0, "idd10": 4.0,
 }
 
 
@@ -1345,12 +1346,15 @@ def get_iiu_dashboard(municipality_code: str, city_profile: str = "medio") -> di
     for published_value in values_response.json():
         latest_values.setdefault(published_value["indicator_code"], published_value)
     if is_demonstration:
-        latest_values = {code: {"indicator_code": code, "value": value, "reference_period": "2025-01-01", "unit": unit, "source_name": "Demonstração DECSYS", "import_title": "Valores sintéticos - não oficiais"} for code, (value, unit) in iiu_demonstration_values.items()}
+        catalog_units = {indicator["code"]: indicator["unit"] for indicator in catalog_response.json()}
+        latest_values = {indicator_code: {"indicator_code": indicator_code, "value": demonstration_value, "reference_period": "2025-01-01", "unit": catalog_units[indicator_code], "source_name": "Demonstração DECSYS", "import_title": "Valores sintéticos - não oficiais"} for indicator_code in catalog_units for demonstration_value in [iiu_demonstration_values.get(indicator_code.split("_", 1)[0])] if demonstration_value is not None}
     benchmark_by_indicator = {benchmark["indicator_code"]: benchmark for benchmark in benchmark_response.json()}
     indicators_by_dimension: dict[str, list[dict[str, Any]]] = {}
     for indicator in catalog_response.json():
         published_value = latest_values.get(indicator["code"])
         benchmark = benchmark_by_indicator.get(indicator["code"])
+        if is_demonstration and benchmark is None and published_value and indicator["score_direction"] != "checklist":
+            benchmark = {"minimum_value": published_value["value"] * 0.4, "maximum_value": published_value["value"] * 1.6}
         raw_value = float(published_value["value"]) if published_value and published_value["value"] is not None else None
         score = iiu_score(raw_value, indicator["score_direction"], float(benchmark["minimum_value"]) if benchmark else None, float(benchmark["maximum_value"]) if benchmark else None, float(indicator["checklist_max"]) if indicator["checklist_max"] is not None else None) if raw_value is not None else None
         indicators_by_dimension.setdefault(indicator["iiu_dimension_code"], []).append({"code": indicator["code"], "name": indicator["name"], "type": indicator["iiu_type"], "unit": indicator["unit"], "formula": indicator["formula"], "source": indicator["source_description"], "direction": indicator["score_direction"], "raw_value": raw_value, "reference_period": published_value["reference_period"] if published_value else None, "score": score, "benchmark": {"minimum": float(benchmark["minimum_value"]), "maximum": float(benchmark["maximum_value"])} if benchmark else None})

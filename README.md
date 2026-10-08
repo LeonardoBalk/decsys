@@ -324,7 +324,7 @@ Importante para extensoes: `core.published_values.indicator_code` e texto e nao 
 
 ### Migrations
 
-As migrations existentes vao de `0001_initial.sql` a `0020_thesis_indicator_catalog.sql` (a 0020 cadastra os 102 indicadores da matriz de coleta, sem ativá-los no IIU). Em banco existente, aplique somente migrations ainda nao executadas, na ordem; nao reaplique scripts manualmente sem conferir o estado do schema. `supabase/schema.sql` e uma definicao consolidada para referencia/instalacao, enquanto as migrations registram a evolucao incremental. O servico informa erros com o nome de algumas migrations se uma funcao ou view necessaria estiver faltando.
+As migrations existentes vao de `0001_initial.sql` a `0023_iiu_thesis_model.sql` (a 0020 cadastra os 102 indicadores da matriz de coleta; a 0021/0022 guardam fontes de coleta editáveis; a 0023 troca o modelo do IIU pelas 7 dimensões da tese e arquiva o modelo antigo em `core.iiu_legacy_snapshot`). Em banco existente, aplique somente migrations ainda nao executadas, na ordem; nao reaplique scripts manualmente sem conferir o estado do schema. `supabase/schema.sql` e uma definicao consolidada para referencia/instalacao, enquanto as migrations registram a evolucao incremental. O servico informa erros com o nome de algumas migrations se uma funcao ou view necessaria estiver faltando.
 
 ## API principal
 
