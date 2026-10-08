@@ -358,3 +358,6 @@
   .navGroup { display: flex; gap: 4px; }
   .sidebar nav a { flex-shrink: 0; white-space: nowrap; }
 }
+
+/* Links de ação dentro da introdução não devem esticar até a largura do bloco */
+.workspaceIntro > a { justify-self: start; }
