@@ -15,7 +15,7 @@ await page.route("**/api/collection-sources**", async (route) => {
   if (request.method() === "GET") return route.fulfill({ json: [...store.values()] });
   if (request.method() === "PUT") {
     const body = request.postDataJSON();
-    const saved = { code, ...body, officialLink: body.officialLink || "", importUrl: body.importUrl || null, manualUrl: body.manualUrl || null, notes: body.notes || null, verifiedOn: "2026-10-08" };
+    const saved = { code, ...body, dimension: body.dimension || "Outras", name: body.name || code, officialLink: body.officialLink || "", importUrl: body.importUrl || null, manualUrl: body.manualUrl || null, notes: body.notes || null, verifiedOn: "2026-10-08" };
     store.set(code, saved);
     return route.fulfill({ json: saved });
   }
@@ -60,6 +60,12 @@ await page.getByText("ECO01 salva.").waitFor();
 assert.ok(await page.getByText("Editada").count() >= 1, "deveria marcar como Editada");
 await page.locator("details[open]").getByRole("button", { name: "Restaurar original" }).click();
 await page.getByText("ECO01 voltou à versão original.").waitFor();
+
+// nada é obrigatório: formulário vazio gera uma sigla e cai em "Outras"
+await page.getByRole("button", { name: "Adicionar fonte" }).click();
+await page.getByRole("button", { name: "Salvar fonte" }).click();
+await page.getByRole("heading", { name: "Outras" }).waitFor();
+assert.ok([...store.keys()].some((code) => code.startsWith("FONTE_")), "deveria gerar sigla automática");
 
 console.log("ok: adicionar, editar, excluir e restaurar funcionam");
 await browser.close();

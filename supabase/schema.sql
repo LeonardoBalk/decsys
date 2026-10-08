@@ -1157,25 +1157,36 @@ on conflict (code) do update set name = excluded.name, dimension = excluded.dime
 
 create table if not exists public.collection_sources (
   code text primary key check (code ~ '^[A-Z0-9_]{2,30}$'),
-  dimension text not null check (length(btrim(dimension)) > 0),
+  dimension text not null default 'Outras',
   factor text not null default '',
-  name text not null check (length(btrim(name)) > 0),
+  name text not null,
   definition text not null default '',
   unit text not null default '',
-  source text not null check (length(btrim(source)) > 0),
+  source text not null default '',
   official_link text,
   access text not null check (access in ('link', 'manual', 'local')),
   import_url text check (import_url is null or import_url ~ '^https://'),
   manual_url text check (manual_url is null or manual_url ~ '^https://'),
-  steps text not null check (length(btrim(steps)) > 0),
+  steps text not null default '',
   needs jsonb not null default '[]'::jsonb check (jsonb_typeof(needs) = 'array'),
   notes text,
   verified_on date not null default current_date,
   created_at timestamptz not null default now(),
-  updated_at timestamptz not null default now(),
-  check (access <> 'link' or import_url is not null)
+  updated_at timestamptz not null default now()
 );
 
 alter table public.collection_sources enable row level security;
 
 grant select, insert, update, delete on public.collection_sources to service_role;
+
+-- Torna opcionais os campos de collection_sources (so a sigla, que e a chave, continua obrigatoria).
+-- Necessaria apenas para quem ja aplicou a versao inicial da 0021; instalacoes novas ja nascem assim.
+
+alter table public.collection_sources drop constraint if exists collection_sources_dimension_check;
+alter table public.collection_sources drop constraint if exists collection_sources_name_check;
+alter table public.collection_sources drop constraint if exists collection_sources_source_check;
+alter table public.collection_sources drop constraint if exists collection_sources_steps_check;
+alter table public.collection_sources drop constraint if exists collection_sources_check;
+alter table public.collection_sources alter column dimension set default 'Outras';
+alter table public.collection_sources alter column source set default '';
+alter table public.collection_sources alter column steps set default '';

@@ -1390,17 +1390,17 @@ collection_text_limits = {"dimension": 80, "factor": 120, "name": 200, "definiti
 
 
 class CollectionSourceInput(BaseModel):
-    dimension: str
+    dimension: str = ""
     factor: str = ""
-    name: str
+    name: str = ""
     definition: str = ""
     unit: str = ""
-    source: str
+    source: str = ""
     official_link: Annotated[str | None, Field(alias="officialLink")] = None
-    access: Literal["link", "manual", "local"]
+    access: Literal["link", "manual", "local"] = "manual"
     import_url: Annotated[str | None, Field(alias="importUrl")] = None
     manual_url: Annotated[str | None, Field(alias="manualUrl")] = None
-    steps: str
+    steps: str = ""
     needs: list[str] = Field(default_factory=list)
     notes: str | None = None
 
@@ -1418,23 +1418,20 @@ def validated_collection_code(raw_code: str) -> str:
     return collection_code
 
 
-def collection_source_values(source: CollectionSourceInput) -> dict[str, Any]:
+def collection_source_values(source: CollectionSourceInput, collection_code: str) -> dict[str, Any]:
     values: dict[str, Any] = {}
     for field_name, field_limit in collection_text_limits.items():
         field_value = (getattr(source, field_name) or "").strip()
         if len(field_value) > field_limit:
             raise HTTPException(422, f"O campo {field_name} passa de {field_limit} caracteres.")
         values[field_name] = field_value
-    for field_name, label in (("dimension", "a dimensão"), ("name", "o nome"), ("source", "a fonte"), ("steps", "o passo a passo")):
-        if not values[field_name]:
-            raise HTTPException(422, f"Informe {label}.")
+    values["dimension"] = values["dimension"] or "Outras"
+    values["name"] = values["name"] or collection_code
     for field_name, link_value in (("official_link", source.official_link), ("import_url", source.import_url), ("manual_url", source.manual_url)):
         link_text = (link_value or "").strip()
         if link_text and not (link_text.startswith("https://") and len(link_text) <= 2000 and " " not in link_text):
             raise HTTPException(422, "Os links precisam começar com https:// e não podem ter espaços.")
         values[field_name] = link_text or None
-    if source.access == "link" and not values["import_url"]:
-        raise HTTPException(422, "Fontes importáveis por link precisam do link para importar.")
     if source.access != "link":
         values["import_url"] = None
     values["access"] = source.access
@@ -1456,7 +1453,7 @@ def list_collection_sources() -> list[dict[str, Any]]:
 @app.put("/collection-sources/{code}")
 def save_collection_source(code: str, source: CollectionSourceInput) -> dict[str, Any]:
     collection_code = validated_collection_code(code)
-    row_values = {"code": collection_code, **collection_source_values(source), "verified_on": date.today().isoformat(), "updated_at": datetime.now().astimezone().isoformat()}
+    row_values = {"code": collection_code, **collection_source_values(source, collection_code), "verified_on": date.today().isoformat(), "updated_at": datetime.now().astimezone().isoformat()}
     save_response = httpx.post(supabase_url(collection_sources_path), params={"on_conflict": "code"}, headers=supabase_headers("resolution=merge-duplicates,return=representation"), json=row_values, timeout=30.0)
     if save_response.status_code == 404:
         raise HTTPException(503, collection_sources_missing_message)
