@@ -1,0 +1,21 @@
+.group { display: grid; gap: var(--space-2); min-width: 0; }
+.label { color: var(--color-text); font-size: var(--text-sm); font-weight: 560; }
+.picker { position: relative; }
+.field { display: flex; align-items: center; gap: var(--space-2); padding: 0 11px; border: 1px solid var(--color-border-strong); border-radius: var(--radius-md); background: var(--color-surface-200); color: var(--color-text-lighter); transition: border-color 140ms ease, box-shadow 140ms ease; }
+.field:focus-within { border-color: var(--color-brand); box-shadow: 0 0 0 3px rgba(62, 158, 255, .16); }
+.field svg { flex-shrink: 0; }
+.picker .field input { flex: 1; min-width: 0; padding: 10px 0; border: 0; background: transparent; box-shadow: none; color: var(--color-text); font-size: var(--text-sm); outline: 0; }
+.picker .field input:focus { border: 0; box-shadow: none; }
+.popover { position: absolute; z-index: 20; top: calc(100% + 4px); left: 0; right: 0; max-height: 340px; overflow: auto; border: 1px solid var(--color-border-strong); border-radius: var(--radius-md); background: var(--color-surface-100); box-shadow: var(--shadow-elevated); }
+.list, .list ul { margin: 0; padding: 0; list-style: none; }
+.groupLabel { position: sticky; top: 0; margin: 0; padding: 6px 12px; background: var(--color-surface-100); color: var(--color-text-muted); font-size: var(--text-xs); font-weight: 650; letter-spacing: .08em; text-transform: uppercase; }
+.option { display: grid; grid-template-columns: 52px minmax(0, 1fr) auto; gap: var(--space-3); align-items: baseline; padding: 8px 12px; color: var(--color-text-light); font-size: var(--text-sm); font-weight: 400; cursor: pointer; }
+.option[aria-selected="true"] { color: var(--color-text); }
+.highlighted { background: var(--color-surface-300); }
+.disabled { opacity: .45; cursor: not-allowed; }
+.code { color: var(--color-text-lighter); font-family: var(--font-mono); font-size: var(--text-caption); }
+.name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.unit { color: var(--color-text-muted); font-size: var(--text-caption); white-space: nowrap; }
+.empty { margin: 0; padding: var(--space-4); color: var(--color-text-lighter); font-size: var(--text-sm); }
+.create { display: flex; width: 100%; align-items: center; gap: var(--space-2); padding: 10px 12px; border: 0; border-top: 1px solid var(--color-border-muted); background: transparent; color: var(--color-brand); font: inherit; font-size: var(--text-sm); text-align: left; cursor: pointer; }
+.create:hover { background: var(--color-surface-300); }
