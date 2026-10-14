@@ -4,7 +4,7 @@ import type { Route } from "next";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { MouseEvent } from "react";
-import { ChartNoAxesCombined, Compass, Database, FileUp, History, House, ListTree, SlidersHorizontal } from "lucide-react";
+import { ChartNoAxesCombined, Compass, Database, FileUp, GitCompareArrows, History, House, ListTree, SlidersHorizontal, TrendingUp, Trophy } from "lucide-react";
 import styles from "../page.module.css";
 import { confirmLeavingUnsavedWork } from "@/lib/unsaved-changes";
 
@@ -26,6 +26,9 @@ const navigationGroups: { label: string | null; items: NavigationItem[] }[] = [
     label: "Painéis",
     items: [
       { href: "/iiu", label: "Índice IIU", icon: ChartNoAxesCombined, isActive: (pathname) => pathname === "/iiu" },
+      { href: "/iiu/ranking", label: "Ranking", icon: Trophy, isActive: (pathname) => pathname.startsWith("/iiu/ranking") },
+      { href: "/iiu/comparar", label: "Comparar municípios", icon: GitCompareArrows, isActive: (pathname) => pathname.startsWith("/iiu/comparar") },
+      { href: "/iiu/evolucao", label: "Evolução", icon: TrendingUp, isActive: (pathname) => pathname.startsWith("/iiu/evolucao") },
       { href: "/iiu/configuracao", label: "Pesos e benchmarks", icon: SlidersHorizontal, isActive: (pathname) => pathname.startsWith("/iiu/configuracao") }
     ]
   }
