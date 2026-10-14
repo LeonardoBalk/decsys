@@ -1,0 +1,13 @@
+table td.cell { padding: 0; white-space: normal; font-family: var(--font-sans); }
+.panel { position: sticky; left: 0; display: grid; gap: var(--space-3); box-sizing: border-box; width: min(680px, calc(100vw - 80px)); padding: var(--space-4); border-left: 3px solid var(--color-border-strong); background: var(--color-surface-100); color: var(--color-text-light); font-family: var(--font-sans); font-size: var(--text-sm); line-height: var(--leading-relaxed); white-space: normal; }
+.panel[data-action="delete"], .panel[data-action="unapprove"] { border-left-color: var(--color-destructive); }
+.panel:focus-visible { outline: 2px solid var(--color-brand); outline-offset: -2px; }
+.panel h3 { margin: 0; color: var(--color-text); font-size: var(--text-sm); font-weight: 590; overflow-wrap: anywhere; }
+.panel p { margin: 0; }
+.impact { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: var(--space-2); margin: 0; }
+.impact > div { display: grid; gap: 2px; padding: var(--space-2) var(--space-3); border: 1px solid var(--color-border-muted); border-radius: var(--radius-md); background: var(--color-surface-200); }
+.impact dt { color: var(--color-text-lighter); font-size: var(--text-xs); }
+.impact dd { margin: 0; color: var(--color-text); font-size: var(--text-sm); font-weight: 590; font-variant-numeric: tabular-nums; }
+.confirm { display: grid; gap: var(--space-2); color: var(--color-text); font-weight: 560; }
+.confirm input { width: 100%; box-sizing: border-box; padding: 9px 10px; border: 1px solid var(--color-border-strong); border-radius: var(--radius-md); background: var(--color-surface-200); color: var(--color-text); font: inherit; font-weight: 400; }
+.confirm input:focus { border-color: var(--color-brand); outline: 0; box-shadow: 0 0 0 3px rgba(62, 158, 255, .16); }
