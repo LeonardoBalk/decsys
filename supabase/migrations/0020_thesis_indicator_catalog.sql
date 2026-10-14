@@ -1,7 +1,3 @@
--- Catálogo de indicadores da matriz de coleta da tese (7 dimensões, ECO/PES/GOV/MOB/AMB/QVI/IDD).
--- Entram fora do cálculo do IIU (iiu_enabled = false, sem dimensão/benchmark IIU): servem para classificar importações e publicar valores.
--- Idempotente: reaplicar só atualiza texto descritivo e nunca altera configuração de IIU de um indicador existente.
-
 insert into municipal.indicators (code, name, dimension, definition, unit, expected_frequency, formula, source_description, iiu_enabled, active) values
   ('eco01_pib_municipal_per_capita', 'ECO01 — PIB municipal per capita', 'Economia', 'PIB municipal a preços correntes dividido pela população residente do mesmo ano.', 'R$/hab.', 'anual', 'PIB municipal a preços correntes dividido pela população residente do mesmo ano.', 'IBGE — PIB dos Municípios + população', false, true),
   ('eco02_participacao_do_vab_industrial_e_de_servicos', 'ECO02 — Participação do VAB industrial e de serviços', 'Economia', 'VAB da indústria e dos serviços dividido pelo VAB total municipal, por setor.', '% do VAB', 'anual', 'VAB da indústria e dos serviços dividido pelo VAB total municipal, por setor.', 'IBGE — PIB dos Municípios', false, true),

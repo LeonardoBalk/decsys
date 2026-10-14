@@ -1,7 +1,3 @@
--- Fontes de coleta editaveis pela tela "Onde coletar".
--- O catalogo base vive em src/data/coleta/*.json; as linhas desta tabela acrescentam fontes novas
--- ou substituem a de mesmo codigo (excluir a linha restaura a original).
-
 create table if not exists public.collection_sources (
   code text primary key check (code ~ '^[A-Z0-9_]{2,30}$'),
   dimension text not null default 'Outras',

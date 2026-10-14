@@ -1,9 +1,3 @@
--- Troca o modelo do IIU pelas 7 dimensoes da matriz da tese (ECO, PES, GOV, MOB, AMB, QVI, IDD).
--- Seguro para reaplicar. O modelo anterior (7 dimensoes, pesos e configuracao dos 42 indicadores) fica
--- guardado em core.iiu_legacy_snapshot antes de qualquer alteracao.
--- Faixas de referencia (benchmarks) NAO sao criadas aqui: sem faixa o painel mostra o valor observado e deixa a
--- pontuacao em branco; defina as faixas em /iiu/configuracao.
-
 create table if not exists core.iiu_legacy_snapshot (
   id integer generated always as identity primary key,
   taken_at timestamptz not null default now(),
@@ -21,7 +15,6 @@ select jsonb_build_object(
 )
 where not exists (select 1 from core.iiu_legacy_snapshot);
 
--- Indicadores do modelo antigo saem do calculo.
 update municipal.indicators
 set iiu_enabled = false, iiu_dimension_code = null, score_direction = null, checklist_max = null
 where iiu_dimension_code is not null and code !~ '^(eco|pes|gov|mob|amb|qvi|idd)[0-9]{2}_';
@@ -29,7 +22,6 @@ where iiu_dimension_code is not null and code !~ '^(eco|pes|gov|mob|amb|qvi|idd)
 delete from core.iiu_dimension_weights where dimension_code in ('ene', 'sau', 'seg', 'hab');
 delete from core.iiu_dimensions where code in ('ene', 'sau', 'seg', 'hab');
 
--- display_order e unico: afasta as linhas existentes antes de reordenar.
 update core.iiu_dimensions set display_order = display_order + 100 where display_order <= 100;
 
 insert into core.iiu_dimensions (code, name, color, display_order) values

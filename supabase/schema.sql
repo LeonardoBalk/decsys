@@ -1042,9 +1042,6 @@ $$;
 revoke all on function public.approve_municipal_import_batch(uuid, jsonb, text) from public, anon, authenticated;
 grant execute on function public.approve_municipal_import_batch(uuid, jsonb, text) to service_role;
 
--- Catálogo de indicadores da matriz de coleta da tese (7 dimensões, ECO/PES/GOV/MOB/AMB/QVI/IDD).
--- Entram fora do cálculo do IIU (iiu_enabled = false, sem dimensão/benchmark IIU): servem para classificar importações e publicar valores.
--- Idempotente: reaplicar só atualiza texto descritivo e nunca altera configuração de IIU de um indicador existente.
 
 insert into municipal.indicators (code, name, dimension, definition, unit, expected_frequency, formula, source_description, iiu_enabled, active) values
   ('eco01_pib_municipal_per_capita', 'ECO01 — PIB municipal per capita', 'Economia', 'PIB municipal a preços correntes dividido pela população residente do mesmo ano.', 'R$/hab.', 'anual', 'PIB municipal a preços correntes dividido pela população residente do mesmo ano.', 'IBGE — PIB dos Municípios + população', false, true),
@@ -1151,9 +1148,6 @@ insert into municipal.indicators (code, name, dimension, definition, unit, expec
   ('idd12_estabelecimentos_de_saude_com_conectividade_sist', 'IDD12 — Estabelecimentos de saúde com conectividade/sistemas digitais', 'Infraestrutura Digital e Dados', 'Estabelecimentos com conexão e sistemas digitais divididos pelo total selecionado.', '% dos estabelecimentos', 'anual', 'Estabelecimentos com conexão e sistemas digitais divididos pelo total selecionado.', 'DATASUS/CNES + levantamento municipal', false, true)
 on conflict (code) do update set name = excluded.name, dimension = excluded.dimension, definition = excluded.definition, unit = excluded.unit, formula = excluded.formula, source_description = excluded.source_description;
 
--- Fontes de coleta editaveis pela tela "Onde coletar".
--- O catalogo base vive em src/data/coleta/*.json; as linhas desta tabela acrescentam fontes novas
--- ou substituem a de mesmo codigo (excluir a linha restaura a original).
 
 create table if not exists public.collection_sources (
   code text primary key check (code ~ '^[A-Z0-9_]{2,30}$'),
@@ -1179,8 +1173,6 @@ alter table public.collection_sources enable row level security;
 
 grant select, insert, update, delete on public.collection_sources to service_role;
 
--- Torna opcionais os campos de collection_sources (so a sigla, que e a chave, continua obrigatoria).
--- Necessaria apenas para quem ja aplicou a versao inicial da 0021; instalacoes novas ja nascem assim.
 
 alter table public.collection_sources drop constraint if exists collection_sources_dimension_check;
 alter table public.collection_sources drop constraint if exists collection_sources_name_check;
@@ -1191,11 +1183,6 @@ alter table public.collection_sources alter column dimension set default 'Outras
 alter table public.collection_sources alter column source set default '';
 alter table public.collection_sources alter column steps set default '';
 
--- Troca o modelo do IIU pelas 7 dimensoes da matriz da tese (ECO, PES, GOV, MOB, AMB, QVI, IDD).
--- Seguro para reaplicar. O modelo anterior (7 dimensoes, pesos e configuracao dos 42 indicadores) fica
--- guardado em core.iiu_legacy_snapshot antes de qualquer alteracao.
--- Faixas de referencia (benchmarks) NAO sao criadas aqui: sem faixa o painel mostra o valor observado e deixa a
--- pontuacao em branco; defina as faixas em /iiu/configuracao.
 
 create table if not exists core.iiu_legacy_snapshot (
   id integer generated always as identity primary key,
@@ -1214,7 +1201,6 @@ select jsonb_build_object(
 )
 where not exists (select 1 from core.iiu_legacy_snapshot);
 
--- Indicadores do modelo antigo saem do calculo.
 update municipal.indicators
 set iiu_enabled = false, iiu_dimension_code = null, score_direction = null, checklist_max = null
 where iiu_dimension_code is not null and code !~ '^(eco|pes|gov|mob|amb|qvi|idd)[0-9]{2}_';
@@ -1222,7 +1208,6 @@ where iiu_dimension_code is not null and code !~ '^(eco|pes|gov|mob|amb|qvi|idd)
 delete from core.iiu_dimension_weights where dimension_code in ('ene', 'sau', 'seg', 'hab');
 delete from core.iiu_dimensions where code in ('ene', 'sau', 'seg', 'hab');
 
--- display_order e unico: afasta as linhas existentes antes de reordenar.
 update core.iiu_dimensions set display_order = display_order + 100 where display_order <= 100;
 
 insert into core.iiu_dimensions (code, name, color, display_order) values
@@ -1357,10 +1342,6 @@ from (values
 ) as thesis(code, dimension_code, iiu_type, direction, checklist_max)
 where indicators.code = thesis.code and indicators.active;
 
--- Arquiva os indicadores do modelo antigo do IIU (os 42 anteriores a matriz da tese).
--- Eles saem das listas de importacao e de indicadores; valores ja publicados com esses codigos continuam existindo.
--- Para reativar um deles, use a tela Indicadores ou: update municipal.indicators set active = true where code = '...';
--- A configuracao antiga continua guardada em core.iiu_legacy_snapshot (migration 0023).
 
 update municipal.indicators
 set active = false
