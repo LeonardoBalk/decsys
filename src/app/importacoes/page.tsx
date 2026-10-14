@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Fragment, useEffect, useState } from "react";
 import { Plus, RefreshCw } from "lucide-react";
 import styles from "../page.module.css";
+import local from "./importacoes.module.css";
 import { StatusNotice } from "../_components/status-notice";
 import { ImportActionRow, type ActionOutcome } from "../_components/importacoes/acao-importacao";
 import { ImportSummary } from "@/lib/types/importacao";
@@ -103,7 +104,7 @@ export default function SavedImportsPage() {
             <td><span className={styles.statusBadge} data-status={savedImport.status}>{statusLabels[savedImport.status] ?? savedImport.status}</span></td>
             <td>{savedImport.total_rows.toLocaleString("pt-BR")}</td>
             <td>{formatDate(savedImport.created_at)}</td>
-            <td><div className={styles.rowActions}>
+            <td><div className={`${styles.rowActions} ${local.actions}`}>
               <Link href={{ pathname: "/importar", query: { importId: savedImport.id } }} onClick={(event) => { event.preventDefault(); window.location.assign(event.currentTarget.href); }}>Abrir</Link>
               <a href={`/api/imports/${encodeURIComponent(savedImport.id)}/export/csv`}>CSV</a>
               <a href={`/api/imports/${encodeURIComponent(savedImport.id)}/export/xlsx`}>XLSX</a>
