@@ -17,6 +17,7 @@ from . import routes_collection_sources
 from . import routes_filters
 from . import routes_health
 from . import routes_iiu
+from . import routes_iiu_panels
 from . import routes_imports
 from . import routes_indicators
 from . import source_cache
@@ -43,5 +44,5 @@ from .routes_imports import *
 from .config import *
 
 app = FastAPI(title="Decsys Ingestion API", version="0.2.0")
-for _router_module in (routes_collection_sources, routes_health, routes_iiu, routes_imports, routes_indicators, approval, municipalities, jobs, routes_filters, benchmarks):
+for _router_module in (routes_collection_sources, routes_health, routes_iiu, routes_iiu_panels, routes_imports, routes_indicators, approval, municipalities, jobs, routes_filters, benchmarks):
     app.include_router(_router_module.router)
