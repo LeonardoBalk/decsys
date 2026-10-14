@@ -57,7 +57,7 @@ O ramo de aprovacao municipal e o unico fluxo descrito acima que materializa val
 | --- | --- |
 | `src/app` | Paginas Next.js, componentes React e Route Handlers usados pelo browser. |
 | `src/lib` | Tipos e utilitarios compartilhados; `ingestion-proxy.ts` centraliza a chamada Next -> FastAPI. |
-| `services/ingestion/app/main.py` | API FastAPI: leitura, perfilamento, sugestoes, transformacoes, validacao e acesso ao Supabase. |
+| `services/ingestion/app/` | API FastAPI dividida por assunto. `main.py` so monta o app e registra os roteadores; `table_reading`, `remote_sources`, `import_store`, `municipalities`, `periods`, `approval`, `population`, `row_filters`, `jobs`, `benchmarks` e `routes_*` guardam a logica. |
 | `supabase/migrations` | Historico incremental de schema, funcoes SQL, views, politicas e dados iniciais. |
 | Supabase Storage | Bucket privado `source-files` para arquivos originais. |
 
@@ -328,7 +328,7 @@ As migrations existentes vao de `0001_initial.sql` a `0023_iiu_thesis_model.sql`
 
 ## API principal
 
-Os handlers web equivalentes ficam em `src/app/api`. Os endpoints FastAPI estao em `services/ingestion/app/main.py`.
+Os handlers web equivalentes ficam em `src/app/api`. Os endpoints FastAPI estao nos modulos `routes_*.py`, `approval.py`, `municipalities.py`, `routes_filters.py`, `benchmarks.py` e `jobs.py`, em `services/ingestion/app`. Nos testes, funcoes sao substituidas no modulo dono (ex.: `patch("services.ingestion.app.supabase_client.supabase_url")`).
 
 | FastAPI | Funcao |
 | --- | --- |
@@ -341,7 +341,11 @@ Os handlers web equivalentes ficam em `src/app/api`. Os endpoints FastAPI estao 
 | `POST /imports/{id}/municipality-matches`, `POST /imports/{id}/apply-municipality-matches` | Sugere e aplica resolucao de municipios. |
 | `POST /imports/{id}/normalize-wide`, `POST /imports/{id}/normalize-municipal-wide`, `POST /imports/{id}/expand-periods` | Prepara formatos largos e periodos por coluna. |
 | `POST /imports/{id}/municipal-preview`, `POST /imports/{id}/approve-municipal` | Previa e aprovacao municipal de um indicador. |
-| `POST /imports/{id}/approve-municipal-batch` | Confere e grava varias medidas da mesma aba em uma unica importacao. |
+| `POST /imports/{id}/approve-municipal-batch` | Confere e grava varias medidas da mesma aba. Aceita `?background=true` (devolve 202 e uma tarefa), denominador por coluna ou `population` (populacao IBGE do ano da linha), limites `value_min`/`value_max`, e fatia abas grandes em partes de `APPROVAL_CHUNK_ROWS` linhas. |
+| `POST /imports/{id}/filter-rows` | Cria uma aba derivada so com as linhas que passam nos filtros (ou so o periodo mais recente). |
+| `GET /jobs/{id}` | Andamento de uma tarefa em segundo plano (fase, progresso, resultado ou erro). |
+| `GET /iiu-configuration/benchmark-suggestion/by-profile`, `POST /iiu-configuration/benchmarks/auto` | Faixas sugeridas (percentis 10 e 90) por porte e aplicacao automatica para todos os indicadores com dados. |
+| `GET /iiu-municipality-profile/{codigo}` | Populacao e porte (pequeno, medio, grande, metropole) de um municipio. |
 | `POST /imports/{id}/approve`, `POST /imports/{id}/discard` | Aprovacao generica ou descarte da importacao. |
 | `GET /imports/{id}/validation-issues`, `GET /imports/{id}/export.csv`, `GET /imports/{id}/export.xlsx` | Pendencias e exportacao. |
 | `GET/POST /indicators`, `GET/PATCH /indicators/{id}`, `POST /indicators/{id}/deactivate` | Catalogo de indicadores. |
@@ -432,7 +436,7 @@ Testes de unidade e browser usam fixtures. Eles nao provam leitura correta de qu
 ```text
 src/app/                         Paginas, componentes e APIs Next.js
 src/lib/                         Tipos e utilitarios compartilhados
-services/ingestion/app/main.py   API e processamento FastAPI
+services/ingestion/app/           API e processamento FastAPI (main.py monta o app; logica em modulos por assunto)
 services/ingestion/tests/        Testes e fixtures Python
 tests/e2e/                       Testes Playwright
 supabase/migrations/             Evolucao incremental do banco
