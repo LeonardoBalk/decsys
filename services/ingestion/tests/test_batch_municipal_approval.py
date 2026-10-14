@@ -54,6 +54,7 @@ class BatchMunicipalPreparationTests(unittest.TestCase):
         self.assertEqual(prepared_rows[0][1]["indicator_values"]["anterior"], "7")
         self.assertEqual(prepared_rows[0][1]["custom_note"], "mantida")
 
+    @patch.dict("os.environ", {"SUPABASE_URL": "https://example.supabase.co", "SUPABASE_SERVICE_ROLE_KEY": "chave"})
     def test_batch_approval_endpoint_persists_one_batch_and_returns_per_indicator_counts(self):
         indicators = [
             {"id": "employment", "code": "empregos_formais", "name": "Empregos formais", "active": True, "calculation_type": "direct", "unit": "pessoas"},
