@@ -1,6 +1,9 @@
+import calendar
 import httpx
 import math
 import re
+import unicodedata
+from datetime import date
 from fastapi import HTTPException
 from typing import Any, Literal
 from fastapi import APIRouter
@@ -99,8 +102,33 @@ def total_from_content_range(content_range: str | None, fallback_total: int) -> 
     total_text = (content_range or "").rsplit("/", 1)[-1]
     return int(total_text) if total_text.isdigit() else fallback_total
 
+dimension_prefixes_by_name = {"economia": "eco", "pessoas": "pes", "governanca": "gov", "mobilidade": "mob", "ambiente": "amb", "qualidade de vida": "qvi", "infraestrutura digital e dados": "idd"}
+
+def without_accents(text: str) -> str:
+    return "".join(character for character in unicodedata.normalize("NFKD", text) if not unicodedata.combining(character))
+
+def dimension_code_prefix(dimension: str) -> str:
+    normalized = without_accents(dimension).strip().lower()
+    if re.fullmatch(r"[a-z]{3}", normalized):
+        return normalized
+    if normalized in dimension_prefixes_by_name:
+        return dimension_prefixes_by_name[normalized]
+    raise HTTPException(422, f"Dimensão desconhecida: {dimension.strip()}. Use a sigla (eco, pes, gov, mob, amb, qvi, idd) ou o nome da dimensão.")
+
+def period_bound(period: str, is_upper_bound: bool) -> str:
+    period_match = re.fullmatch(r"([0-9]{4})(?:-([0-9]{2})(?:-([0-9]{2}))?)?", period.strip())
+    if not period_match:
+        raise HTTPException(422, "Informe o período como AAAA, AAAA-MM ou AAAA-MM-DD.")
+    year = int(period_match.group(1))
+    month = int(period_match.group(2)) if period_match.group(2) else (12 if is_upper_bound else 1)
+    try:
+        day = int(period_match.group(3)) if period_match.group(3) else (calendar.monthrange(year, month)[1] if is_upper_bound else 1)
+        return date(year, month, day).isoformat()
+    except ValueError:
+        raise HTTPException(422, f"O período {period.strip()} não é uma data válida.") from None
+
 @router.get("/dashboard-values")
-def list_dashboard_values(indicator_code: str | None = None, dataset_id: str | None = None, limit: int = 200, offset: int = 0) -> dict[str, Any]:
+def list_dashboard_values(indicator_code: str | None = None, dataset_id: str | None = None, limit: int = 200, offset: int = 0, municipality_code: str | None = None, dimension: str | None = None, period_from: str | None = None, period_to: str | None = None, search: str | None = None) -> dict[str, Any]:
     page_limit = max(1, min(limit, 1000))
     page_offset = max(0, offset)
     query_parameters: dict[str, str] = {"select": "id,dataset_id,dataset_name,domain_name,indicator_code,indicator_name,dimensions,reference_period,value,unit,import_title,source_name", "order": "reference_period.desc,id", "limit": str(page_limit), "offset": str(page_offset)}
@@ -108,6 +136,26 @@ def list_dashboard_values(indicator_code: str | None = None, dataset_id: str | N
         query_parameters["indicator_code"] = f"eq.{indicator_code}"
     if dataset_id:
         query_parameters["dataset_id"] = f"eq.{dataset_id}"
+    if municipality_code and municipality_code.strip():
+        if not re.fullmatch(r"[0-9]{7}", municipality_code.strip()):
+            raise HTTPException(422, "Informe um código IBGE de município com sete dígitos.")
+        query_parameters["dimensions->>municipality_ibge_code"] = f"eq.{municipality_code.strip()}"
+    combined_conditions: list[str] = []
+    if dimension and dimension.strip():
+        combined_conditions.append(f"indicator_code.like.{dimension_code_prefix(dimension)}*")
+    lower_bound = period_bound(period_from, False) if period_from and period_from.strip() else None
+    upper_bound = period_bound(period_to, True) if period_to and period_to.strip() else None
+    if lower_bound and upper_bound and lower_bound > upper_bound:
+        raise HTTPException(422, "O período inicial precisa ser anterior ao período final.")
+    if lower_bound:
+        combined_conditions.append(f"reference_period.gte.{lower_bound}")
+    if upper_bound:
+        combined_conditions.append(f"reference_period.lte.{upper_bound}")
+    if combined_conditions:
+        query_parameters["and"] = f"({','.join(combined_conditions)})"
+    search_term = re.sub(r"""[,()*"\\]""", " ", search or "").strip()
+    if search_term:
+        query_parameters["or"] = f"(indicator_code.ilike.*{search_term}*,indicator_name.ilike.*{search_term}*)"
     values_response = httpx.get(supabase_client.supabase_url("/rest/v1/dashboard_values"), params={**query_parameters, "select": f"{query_parameters['select']},period_granularity"}, headers=supabase_client.supabase_headers("count=exact"), timeout=30.0)
     if values_response.status_code == 400:
         values_response = httpx.get(supabase_client.supabase_url("/rest/v1/dashboard_values"), params=query_parameters, headers=supabase_client.supabase_headers("count=exact"), timeout=30.0)
@@ -133,6 +181,17 @@ def search_iiu_municipalities(search: str = "") -> list[dict[str, Any]]:
     if not municipalities_response.is_success:
         raise HTTPException(502, "Não foi possível carregar os municípios do IIU.")
     return municipalities_response.json()
+
+maturity_levels = ((20, "Nível 1 - Inicial"), (40, "Nível 2 - Em desenvolvimento"), (60, "Nível 3 - Estruturado"), (80, "Nível 4 - Gerenciado"), (100, "Nível 5 - Otimizado"))
+
+def mean_score(scores: list[float]) -> float | None:
+    return sum(scores) / len(scores) if scores else None
+
+def weighted_overall_score(weighted_scores: list[tuple[float, float]]) -> float | None:
+    return sum(score * weight for score, weight in weighted_scores) / sum(weight for _, weight in weighted_scores) if weighted_scores else None
+
+def maturity_label(overall_score: float | None) -> str | None:
+    return next((label for limit, label in maturity_levels if overall_score is not None and overall_score <= limit), None)
 
 def iiu_score(value: float, direction: str, minimum_value: float | None, maximum_value: float | None, checklist_max: float | None) -> float | None:
     if direction == "checklist" and checklist_max:
@@ -179,10 +238,9 @@ def get_iiu_dashboard(municipality_code: str, city_profile: str = "medio") -> di
     for dimension in dimension_response.json():
         dimension_indicators = indicators_by_dimension.get(dimension["code"], [])
         valid_scores = [indicator["score"] for indicator in dimension_indicators if indicator["score"] is not None]
-        dimension_score = sum(valid_scores) / len(valid_scores) if valid_scores else None
+        dimension_score = mean_score(valid_scores)
         if dimension_score is not None:
             weighted_scores.append((dimension_score, float(dimension["weight"])))
         dimensions.append({"code": dimension["code"], "name": dimension["name"], "color": dimension["color"], "weight": float(dimension["weight"]), "score": dimension_score, "indicators": dimension_indicators, "scored_indicators": len(valid_scores), "observed_indicators": sum(1 for indicator in dimension_indicators if indicator["raw_value"] is not None), "total_indicators": len(dimension_indicators)})
-    overall_score = sum(score * weight for score, weight in weighted_scores) / sum(weight for _, weight in weighted_scores) if weighted_scores else None
-    maturity = next((level for level in ((20, "Nível 1 - Inicial"), (40, "Nível 2 - Em desenvolvimento"), (60, "Nível 3 - Estruturado"), (80, "Nível 4 - Gerenciado"), (100, "Nível 5 - Otimizado")) if overall_score is not None and overall_score <= level[0]), None)
-    return {"municipality_ibge_code": municipality_code, "city_profile": city_profile, "is_demonstration": is_demonstration, "overall_score": overall_score, "maturity": maturity[1] if maturity else None, "observed_indicators": sum(dimension["observed_indicators"] for dimension in dimensions), "scored_indicators": sum(dimension["scored_indicators"] for dimension in dimensions), "total_indicators": sum(dimension["total_indicators"] for dimension in dimensions), "dimensions": dimensions}
+    overall_score = weighted_overall_score(weighted_scores)
+    return {"municipality_ibge_code": municipality_code, "city_profile": city_profile, "is_demonstration": is_demonstration, "overall_score": overall_score, "maturity": maturity_label(overall_score), "observed_indicators": sum(dimension["observed_indicators"] for dimension in dimensions), "scored_indicators": sum(dimension["scored_indicators"] for dimension in dimensions), "total_indicators": sum(dimension["total_indicators"] for dimension in dimensions), "dimensions": dimensions}
