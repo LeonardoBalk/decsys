@@ -7,11 +7,14 @@ from . import config  # noqa: F401
 from . import ai_assessment
 from . import approval
 from . import import_store
+from . import jobs
 from . import models
 from . import municipalities
 from . import periods
+from . import population
 from . import remote_sources
 from . import routes_collection_sources
+from . import routes_filters
 from . import routes_health
 from . import routes_iiu
 from . import routes_imports
@@ -21,6 +24,7 @@ from . import source_limits
 from . import supabase_client
 from . import table_reading
 from .models import *  # noqa: F401,F403
+from .row_filters import *  # noqa: F401,F403
 from .supabase_client import *  # noqa: F401,F403
 from .source_limits import *  # noqa: F401,F403
 from .source_cache import *  # noqa: F401,F403
@@ -39,5 +43,5 @@ from .routes_imports import *  # noqa: F401,F403
 from .config import *  # noqa: F401,F403
 
 app = FastAPI(title="Decsys Ingestion API", version="0.2.0")
-for _router_module in (routes_collection_sources, routes_health, routes_iiu, routes_imports, routes_indicators, approval, municipalities):
+for _router_module in (routes_collection_sources, routes_health, routes_iiu, routes_imports, routes_indicators, approval, municipalities, jobs, routes_filters):
     app.include_router(_router_module.router)

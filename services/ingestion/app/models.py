@@ -39,6 +39,9 @@ class MunicipalIndicatorMapping(BaseModel):
     value_field: str | None = None
     numerator_field: str | None = None
     denominator_field: str | None = None
+    denominator_source: Literal["column", "population"] = "column"
+    value_min: float | None = None
+    value_max: float | None = None
     unit: str
 
 class MunicipalBatchApproval(BaseModel):

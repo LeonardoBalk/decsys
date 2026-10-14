@@ -141,3 +141,56 @@ def spreadsheet_export_value(field_value: Any) -> Any:
     if isinstance(field_value, (dict, list)):
         return json.dumps(field_value, ensure_ascii=False, separators=(",", ":"))
     return field_value
+
+
+def write_derived_sheet(import_id: str, target_sheet: str, source_sheet: str | None, rows: list[tuple[dict[str, Any], dict[str, Any]]]) -> int:
+    """Grava as linhas (já preparadas) numa aba nova da mesma importação, sem tocar nas linhas originais.
+
+    Cada linha guarda `origin_sheet` e `origin_row_number` para rastrear de onde veio. Regravar a mesma aba substitui o conteúdo.
+    """
+    headers = supabase_client.supabase_headers()
+    delete_response = httpx.delete(supabase_client.supabase_url("/rest/v1/import_rows"), params={"import_id": f"eq.{import_id}", "sheet_name": f"eq.{target_sheet}"}, headers=headers, timeout=120.0)
+    if not delete_response.is_success:
+        raise upstream_error("Não foi possível limpar a aba derivada antes de gravá-la.", delete_response)
+    records = []
+    for position, (staged_row, normalized_row) in enumerate(rows, start=1):
+        records.append({
+            "import_id": import_id,
+            "sheet_name": target_sheet,
+            "row_number": position,
+            "raw_row": staged_row["raw_row"],
+            "normalized_row": {**normalized_row, "origin_sheet": source_sheet, "origin_row_number": staged_row["row_number"]},
+        })
+    for start_index in range(0, len(records), 500):
+        try:
+            rows_response = httpx.post(
+                supabase_client.supabase_url("/rest/v1/import_rows"),
+                params={"on_conflict": "import_id,sheet_name,row_number"},
+                headers=supabase_client.supabase_headers("resolution=merge-duplicates,return=minimal"),
+                json=records[start_index:start_index + 500],
+                timeout=60.0,
+            )
+        except httpx.TransportError:
+            raise HTTPException(502, "Perdemos a conexão com o Supabase ao gravar a aba derivada. Tente novamente.")
+        if not rows_response.is_success:
+            raise upstream_error("Não foi possível gravar as linhas da aba derivada.", rows_response)
+
+    sheets_response = httpx.get(supabase_client.supabase_url("/rest/v1/import_sheets"), params={"import_id": f"eq.{import_id}", "select": "sheet_name,sheet_position"}, headers=supabase_client.supabase_headers(), timeout=30.0)
+    existing_sheets = sheets_response.json() if sheets_response.is_success else []
+    existing_position = next((sheet["sheet_position"] for sheet in existing_sheets if sheet["sheet_name"] == target_sheet), None)
+    sample_rows = [record["raw_row"] for record in records[:20]]
+    sample_table = pl.from_dicts(sample_rows, infer_schema_length=20, strict=False) if sample_rows else pl.DataFrame()
+    sheet_record = {
+        "import_id": import_id,
+        "sheet_name": target_sheet,
+        "sheet_position": existing_position or max([sheet["sheet_position"] for sheet in existing_sheets] or [0]) + 1,
+        "row_count": len(records),
+        "column_count": sample_table.width,
+        "columns_profile": [{"name": column_name, "dtype": str(sample_table[column_name].dtype), "null_count": int(sample_table[column_name].null_count())} for column_name in sample_table.columns],
+        "sample_rows": sample_rows,
+        "selected_for_treatment": False,
+    }
+    sheet_response = httpx.post(supabase_client.supabase_url("/rest/v1/import_sheets"), params={"on_conflict": "import_id,sheet_name"}, headers=supabase_client.supabase_headers("resolution=merge-duplicates,return=minimal"), json=[sheet_record], timeout=30.0)
+    if not sheet_response.is_success:
+        raise upstream_error("As linhas foram gravadas, mas não foi possível registrar a nova aba.", sheet_response)
+    return len(records)

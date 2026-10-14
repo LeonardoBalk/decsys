@@ -2,11 +2,11 @@ import httpx
 import polars as pl
 import re
 from decimal import Decimal, InvalidOperation
-from fastapi import HTTPException
+from fastapi import HTTPException, Response
 from typing import Any
 from fastapi import APIRouter
 
-from . import import_store, municipalities, routes_indicators, supabase_client
+from . import config, import_store, jobs, municipalities, population, routes_indicators, supabase_client
 from .models import GenericApproval, MunicipalApproval, MunicipalBatchApproval, MunicipalCalculationPreview, PeriodExpansion, PeriodSelection, WideMunicipalTransform
 from .municipalities import municipality_code_resolver
 from .periods import annual_period_from_column_name, cell_text, identity_column_names, monthly_period_from_column_name, parse_date_period, parse_numeric_value, parse_year, period_column_descriptor, resolve_row_period, valid_period, validate_period_selection
@@ -62,8 +62,59 @@ def approve_municipal_import(import_id: str, approval: MunicipalApproval) -> dic
     }
 
 @router.post("/imports/{import_id}/approve-municipal-batch")
-def approve_municipal_import_batch(import_id: str, approval: MunicipalBatchApproval) -> dict[str, Any]:
+def approve_municipal_import_batch(import_id: str, approval: MunicipalBatchApproval, response: Response, background: bool = False) -> dict[str, Any]:
+    """Grava várias medidas da mesma aba. Com background=true devolve 202 e uma tarefa para acompanhar em GET /jobs/{id}."""
+    if background:
+        validate_period_selection(approval.period)
+        job = jobs.start_job("approve", import_id, lambda running_job: run_batch_approval(import_id, approval, running_job.report))
+        response.status_code = 202
+        return job.public()
+    return run_batch_approval(import_id, approval)
+
+
+def clamp_value_text(value_text: str | None, value_min: float | None, value_max: float | None) -> str | None:
+    if value_text is None or (value_min is None and value_max is None):
+        return value_text
+    try:
+        number = Decimal(value_text)
+    except InvalidOperation:
+        return value_text
+    if value_max is not None and number > Decimal(str(value_max)):
+        number = Decimal(str(value_max))
+    if value_min is not None and number < Decimal(str(value_min)):
+        number = Decimal(str(value_min))
+    text = format(number, "f")
+    return text.rstrip("0").rstrip(".") if "." in text else text
+
+
+def chunk_sheet_name(sheet_name: str | None, index: int, total: int) -> str:
+    return f"{sheet_name or 'Dados'} · parte {index} de {total}"
+
+
+class CachedPopulationLookup:
+    """Busca a população de cada ano uma vez; anos que o IBGE não publica viram 'sem população' em vez de derrubar tudo."""
+
+    def __init__(self) -> None:
+        self.by_year: dict[int, dict[str, int]] = {}
+        self.missing_years: set[int] = set()
+
+    def __call__(self, year: int) -> dict[str, int]:
+        if year in self.by_year:
+            return self.by_year[year]
+        try:
+            self.by_year[year] = population.population_by_municipality(year)
+        except HTTPException as unavailable:
+            if unavailable.status_code != 422:
+                raise
+            self.by_year[year] = {}
+            self.missing_years.add(year)
+        return self.by_year[year]
+
+
+def run_batch_approval(import_id: str, approval: MunicipalBatchApproval, progress: Any = None) -> dict[str, Any]:
+    report = progress or (lambda phase, fraction=None: None)
     validate_period_selection(approval.period)
+    report("Conferindo os indicadores escolhidos", 0.02)
     indicator_ids = [mapping.indicator_id for mapping in approval.mappings]
     if len(set(indicator_ids)) != len(indicator_ids):
         raise HTTPException(422, "Escolha cada indicador uma unica vez nesta importacao.")
@@ -85,8 +136,13 @@ def approve_municipal_import_batch(import_id: str, approval: MunicipalBatchAppro
         calculation_type = selected_indicator.get("calculation_type") or "direct"
         if not mapping.unit.strip():
             raise HTTPException(422, f"Informe a unidade do indicador {selected_indicator['name']}.")
+        if mapping.value_min is not None and mapping.value_max is not None and mapping.value_min >= mapping.value_max:
+            raise HTTPException(422, f"Em {selected_indicator['name']}, o limite mínimo precisa ser menor que o máximo.")
         if calculation_type == "ratio":
-            if not mapping.numerator_field or not mapping.denominator_field or mapping.numerator_field == mapping.denominator_field:
+            if mapping.denominator_source == "population":
+                if not mapping.numerator_field:
+                    raise HTTPException(422, f"Escolha a coluna do numerador para {selected_indicator['name']}.")
+            elif not mapping.numerator_field or not mapping.denominator_field or mapping.numerator_field == mapping.denominator_field:
                 raise HTTPException(422, f"Escolha numerador e denominador diferentes para {selected_indicator['name']}.")
         elif not mapping.value_field:
             raise HTTPException(422, f"Escolha a coluna de valor para {selected_indicator['name']}.")
@@ -99,32 +155,72 @@ def approve_municipal_import_batch(import_id: str, approval: MunicipalBatchAppro
             "value_field": mapping.value_field,
             "numerator_field": mapping.numerator_field,
             "denominator_field": mapping.denominator_field,
+            "denominator_source": mapping.denominator_source if calculation_type == "ratio" else "column",
+            "value_min": mapping.value_min,
+            "value_max": mapping.value_max,
             "unit": mapping.unit.strip(),
             "prepared_field": f"decsys_value__{selected_indicator['code']}",
         })
 
     municipalities.ensure_municipal_catalog_registered()
+    report("Lendo as linhas da importação", 0.08)
     staged_rows = municipalities.fetch_rows_for_municipality_resolution(import_id, approval.sheet_name)
     resolve_municipality = municipality_code_resolver(municipalities.ibge_municipality_catalog())
-    prepared_rows, preparation_summary = prepare_rows_for_batch_approval(staged_rows, approval.period, selected_mappings, approval.municipality_field, resolve_municipality)
-    import_store.upsert_staged_rows(import_id, approval.sheet_name, prepared_rows, "Nao foi possivel preparar os valores selecionados antes da aprovacao.")
-    batch_response = httpx.post(
-        supabase_client.supabase_url("/rest/v1/rpc/approve_municipal_import_batch"),
-        headers=supabase_client.supabase_headers(),
-        json={"selected_import_id": import_id, "selected_mappings": [{"indicator_id": mapping["indicator_id"], "indicator_code": mapping["indicator_code"], "prepared_field": mapping["prepared_field"], "observation_unit": mapping["unit"]} for mapping in selected_mappings], "selected_sheet_name": approval.sheet_name},
-        timeout=600.0,
-    )
-    if batch_response.status_code == 404:
-        raise HTTPException(503, "Execute a migration 0019_batch_municipal_approval.sql no Supabase para gravar varios indicadores de uma vez.")
-    if not batch_response.is_success:
-        raise upstream_error("Nao foi possivel aprovar os indicadores selecionados.", batch_response)
-    publication_summary = batch_response.json()
-    approved_by_indicator = {item["indicator_id"]: item["approved_rows"] for item in publication_summary.get("indicators", [])}
+    report("Resolvendo municípios, períodos e valores", 0.25)
+    population_for_year = CachedPopulationLookup() if any(mapping["denominator_source"] == "population" for mapping in selected_mappings) else None
+    prepared_rows, preparation_summary = prepare_rows_for_batch_approval(staged_rows, approval.period, selected_mappings, approval.municipality_field, resolve_municipality, population_for_year)
+    missing_population_years = sorted(population_for_year.missing_years) if population_for_year else []
+
+    chunk_size = max(500, config.approval_chunk_rows)
+    approved_by_indicator: dict[str, int] = {}
+    final_status = "needs_review"
+    approved_total = 0
+    chunk_count = 1
+    rpc_mappings = [{"indicator_id": mapping["indicator_id"], "indicator_code": mapping["indicator_code"], "prepared_field": mapping["prepared_field"], "observation_unit": mapping["unit"]} for mapping in selected_mappings]
+
+    def approve_sheet(target_sheet: str | None) -> dict[str, Any]:
+        batch_response = httpx.post(
+            supabase_client.supabase_url("/rest/v1/rpc/approve_municipal_import_batch"),
+            headers=supabase_client.supabase_headers(),
+            json={"selected_import_id": import_id, "selected_mappings": rpc_mappings, "selected_sheet_name": target_sheet},
+            timeout=900.0,
+        )
+        if batch_response.status_code == 404:
+            raise HTTPException(503, "Execute a migration 0019_batch_municipal_approval.sql no Supabase para gravar varios indicadores de uma vez.")
+        if not batch_response.is_success:
+            raise upstream_error("Nao foi possivel aprovar os indicadores selecionados.", batch_response)
+        return batch_response.json()
+
+    if len(prepared_rows) <= chunk_size:
+        report("Guardando os valores preparados", 0.5)
+        import_store.upsert_staged_rows(import_id, approval.sheet_name, prepared_rows, "Nao foi possivel preparar os valores selecionados antes da aprovacao.")
+        report("Gravando no painel municipal", 0.7)
+        publication_summary = approve_sheet(approval.sheet_name)
+        approved_by_indicator = {item["indicator_id"]: item["approved_rows"] for item in publication_summary.get("indicators", [])}
+        final_status = publication_summary.get("status", "needs_review")
+        approved_total = publication_summary.get("approved_value_count", 0)
+    else:
+        chunks = [prepared_rows[start_index:start_index + chunk_size] for start_index in range(0, len(prepared_rows), chunk_size)]
+        chunk_count = len(chunks)
+        source_sheet = approval.sheet_name or "Dados"
+        for index, chunk in enumerate(chunks, start=1):
+            target_sheet = chunk_sheet_name(source_sheet, index, chunk_count)
+            report(f"Gravando parte {index} de {chunk_count}", 0.3 + 0.65 * ((index - 1) / chunk_count))
+            import_store.write_derived_sheet(import_id, target_sheet, source_sheet, chunk)
+            publication_summary = approve_sheet(target_sheet)
+            for item in publication_summary.get("indicators", []):
+                approved_by_indicator[item["indicator_id"]] = approved_by_indicator.get(item["indicator_id"], 0) + item["approved_rows"]
+            approved_total += publication_summary.get("approved_value_count", 0)
+            if publication_summary.get("status") == "approved":
+                final_status = "approved"
+
+    report("Montando o resumo", 0.97)
     indicator_results = []
     for mapping in selected_mappings:
         indicator_id = mapping["indicator_id"]
         indicator_results.append({"indicator_id": indicator_id, "indicator_code": mapping["indicator_code"], "indicator_name": mapping["indicator_name"], "approved_rows": approved_by_indicator.get(indicator_id, 0), **preparation_summary["indicator_problems"][indicator_id]})
-    return {"import_id": import_id, "status": publication_summary.get("status", "needs_review"), "approved_value_count": publication_summary.get("approved_value_count", 0), "period_problem_count": len(preparation_summary["period_problems"]), "period_problems": preparation_summary["period_problems"][:5], "municipality_problem_count": len(preparation_summary["municipality_problems"]), "municipality_problems": preparation_summary["municipality_problems"][:5], "indicator_results": indicator_results}
+    return {"import_id": import_id, "status": final_status, "approved_value_count": approved_total, "chunks": chunk_count, "missing_population_years": missing_population_years, "period_problem_count": len(preparation_summary["period_problems"]), "period_problems": preparation_summary["period_problems"][:5], "municipality_problem_count": len(preparation_summary["municipality_problems"]), "municipality_problems": preparation_summary["municipality_problems"][:5], "indicator_results": indicator_results}
+
 
 @router.post("/imports/{import_id}/municipal-preview")
 def preview_municipal_import_calculation(import_id: str, preview: MunicipalCalculationPreview) -> dict[str, Any]:
@@ -173,7 +269,7 @@ def prepare_rows_for_approval(staged_rows: list[dict[str, Any]], period: PeriodS
         prepared_rows.append((staged_row, normalized_row))
     return prepared_rows, period_problems, value_problems, municipality_problems
 
-def prepare_rows_for_batch_approval(staged_rows: list[dict[str, Any]], period: PeriodSelection, mappings: list[dict[str, Any]], municipality_field: str, resolve_municipality: Any) -> tuple[list[tuple[dict[str, Any], dict[str, Any]]], dict[str, Any]]:
+def prepare_rows_for_batch_approval(staged_rows: list[dict[str, Any]], period: PeriodSelection, mappings: list[dict[str, Any]], municipality_field: str, resolve_municipality: Any, population_for_year: Any = None) -> tuple[list[tuple[dict[str, Any], dict[str, Any]]], dict[str, Any]]:
     prepared_rows: list[tuple[dict[str, Any], dict[str, Any]]] = []
     period_problems: list[dict[str, Any]] = []
     municipality_problems: list[dict[str, Any]] = []
@@ -221,7 +317,20 @@ def prepare_rows_for_batch_approval(staged_rows: list[dict[str, Any]], period: P
         indicator_calculations = dict(normalized_row.get("indicator_calculations") or {})
         for mapping in mappings:
             selected_indicator_id = mapping["indicator_id"]
-            if mapping["calculation_type"] == "ratio":
+            if mapping["calculation_type"] == "ratio" and mapping.get("denominator_source") == "population":
+                numerator_text = parse_numeric_value(source_row.get(mapping["numerator_field"]))
+                reference_year = parse_year(normalized_row.get("reference_year"))
+                inhabitants = population_for_year(reference_year).get(resolved_code or "") if population_for_year and reference_year else None
+                try:
+                    calculated_value = Decimal(numerator_text) / Decimal(inhabitants) * Decimal(str(mapping["calculation_multiplier"])) if numerator_text is not None and inhabitants else None
+                except (InvalidOperation, ZeroDivisionError):
+                    calculated_value = None
+                value_text = format(calculated_value, "f") if calculated_value is not None else None
+                if value_text and "." in value_text:
+                    value_text = value_text.rstrip("0").rstrip(".")
+                calculation = {"type": "ratio_population", "numerator_field": mapping["numerator_field"], "population_year": reference_year, "multiplier": mapping["calculation_multiplier"]}
+                source_measure = f"{cell_text(source_row.get(mapping['numerator_field']))} / população {reference_year or '?'}: {inhabitants if inhabitants else 'sem dado'}"
+            elif mapping["calculation_type"] == "ratio":
                 numerator_text = parse_numeric_value(source_row.get(mapping["numerator_field"]))
                 denominator_text = parse_numeric_value(source_row.get(mapping["denominator_field"]))
                 try:
@@ -239,6 +348,7 @@ def prepare_rows_for_batch_approval(staged_rows: list[dict[str, Any]], period: P
                 calculation = {"type": "direct", "value_field": mapping["value_field"]}
                 source_measure = cell_text(source_row.get(mapping["value_field"]))
 
+            value_text = clamp_value_text(value_text, mapping.get("value_min"), mapping.get("value_max"))
             normalized_row[mapping["prepared_field"]] = value_text
             indicator_values[mapping["indicator_code"]] = value_text
             indicator_calculations[mapping["indicator_code"]] = calculation
