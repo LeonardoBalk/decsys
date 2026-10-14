@@ -19,6 +19,10 @@
 .badge_link { color: var(--color-success); border-color: var(--color-success); background: var(--color-success-surface); }
 .badge_manual { color: var(--color-warning); border-color: var(--color-warning); background: var(--color-warning-surface); }
 .badge_local { color: var(--color-text-lighter); }
+.badges { display: flex; flex-wrap: wrap; gap: var(--space-2); align-items: center; justify-content: flex-end; }
+.badge_data { color: var(--color-brand); border-color: var(--color-brand); background: transparent; }
+.badge_empty { color: var(--color-text-muted); border-color: var(--color-border-muted); }
+.coverageNote { margin: 0 0 var(--space-2); color: var(--color-brand); font-size: var(--text-caption); }
 .body { padding: 0 var(--space-3) var(--space-3) calc(var(--space-3) + 52px); }
 .steps { margin: 0; color: var(--color-text-light); font-size: var(--text-sm); line-height: 1.55; }
 .note { margin: var(--space-2) 0 0; color: var(--color-text-lighter); font-size: var(--text-caption); line-height: 1.55; overflow-wrap: anywhere; }
@@ -29,7 +33,7 @@
 .legend div { padding: var(--space-3) var(--space-4); border-radius: var(--radius-lg); background: var(--color-surface-100); box-shadow: var(--shadow-inset-border); }
 .legend p { margin: var(--space-2) 0 0; color: var(--color-text-lighter); font-size: var(--text-sm); line-height: var(--leading-normal); }
 @media (max-width: 900px) { .legend { grid-template-columns: 1fr; } }
-@media (max-width: 720px) { .toggle { grid-template-columns: auto minmax(0, 1fr) auto; } .toggle .badge { grid-column: 2; justify-self: start; } .body { padding-left: var(--space-3); } .filters input { margin-left: 0; width: 100%; } }
+@media (max-width: 720px) { .toggle { grid-template-columns: auto minmax(0, 1fr) auto; } .toggle .badges { grid-column: 2; justify-content: flex-start; } .body { padding-left: var(--space-3); } .filters input { margin-left: 0; width: 100%; } }
 .introActions { margin-top: var(--space-3); }
 .introActions button { cursor: pointer; font: inherit; }
 .spacer { flex: 1 1 auto; }

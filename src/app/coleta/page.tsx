@@ -3,12 +3,13 @@
 import type { Route } from "next";
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { ChevronRight, Download, ExternalLink, Link2, MapPin, Pencil, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { ChevronRight, CircleDashed, Database, Download, ExternalLink, Link2, MapPin, Pencil, Plus, RotateCcw, Trash2 } from "lucide-react";
 import styles from "../page.module.css";
 import coleta from "./coleta.module.css";
 import { StatusNotice } from "../_components/status-notice";
 import { SourceForm } from "../_components/coleta/fonte-form";
 import { importErrorMessage } from "@/lib/import-error-message";
+import { countWithoutData, coverageByCode, coverageOf, coverageDetail, coverageLabel, hasData, type Coverage, type CoverageByCode, type CoverageEntry } from "@/lib/coleta-coverage";
 import { ACCESS_LABELS, CollectionAccess, CollectionDraft, CollectionEntry, CollectionItem, collectionDimensions, collectionItems, countByAccess, draftFromItem, emptyCollectionDraft, importHref, isHttpsUrl, mergeCollectionItems } from "@/lib/coleta-catalog";
 
 type AccessFilter = CollectionAccess | "all";
@@ -28,17 +29,27 @@ function ItemActions({ item, onEdit, onRemove }: { item: CollectionEntry; onEdit
   </div>;
 }
 
-function ItemRow({ item, onEdit, onRemove }: { item: CollectionEntry; onEdit: () => void; onRemove: () => void }) {
+function CoverageBadge({ coverage }: { coverage: Coverage | undefined }) {
+  if (!coverage || coverage.values === 0) return <span className={`${coleta.badge} ${coleta.badge_empty}`}><CircleDashed size={13} />Sem dados</span>;
+  return <span className={`${coleta.badge} ${coleta.badge_data}`} title={coverageDetail(coverage)}><Database size={13} />{coverageLabel(coverage)}</span>;
+}
+
+function ItemRow({ item, coverage, onEdit, onRemove }: { item: CollectionEntry; coverage: CoverageByCode | null; onEdit: () => void; onRemove: () => void }) {
   const AccessIcon = ACCESS_ICONS[item.access];
+  const itemCoverage = coverage ? coverageOf(item.code, coverage) : undefined;
   return <li>
     <details className={coleta.item}>
       <summary className={coleta.toggle}>
         <span className={coleta.code}>{item.code}</span>
         <span><strong>{item.name}{item.origin !== "base" ? <em className={coleta.originTag}>{ORIGIN_LABELS[item.origin]}</em> : null}</strong><span className={coleta.meta}>{[item.source, item.unit].filter(Boolean).join(" · ") || "Sem fonte informada"}</span></span>
-        <span className={`${coleta.badge} ${coleta[`badge_${item.access}`]}`}><AccessIcon size={13} />{ACCESS_LABELS[item.access]}</span>
+        <span className={coleta.badges}>
+          {coverage ? <CoverageBadge coverage={itemCoverage} /> : null}
+          <span className={`${coleta.badge} ${coleta[`badge_${item.access}`]}`}><AccessIcon size={13} />{ACCESS_LABELS[item.access]}</span>
+        </span>
         <ChevronRight aria-hidden className={coleta.chevron} size={16} />
       </summary>
       <div className={coleta.body}>
+        {itemCoverage && itemCoverage.values > 0 ? <p className={coleta.coverageNote}>{coverageDetail(itemCoverage)}</p> : null}
         {item.steps ? <p className={coleta.steps}>{item.steps}</p> : null}
         {item.needs.length > 0 ? <p className={coleta.note}>Precisa também de: {item.needs.join("; ")}</p> : null}
         {item.notes ? <p className={coleta.note}>{item.notes}</p> : null}
@@ -53,6 +64,9 @@ export default function CollectionPage() {
   const [search, setSearch] = useState("");
   const [savedSources, setSavedSources] = useState<CollectionItem[]>([]);
   const [loadWarning, setLoadWarning] = useState("");
+  const [coverage, setCoverage] = useState<CoverageByCode | null>(null);
+  const [coverageWarning, setCoverageWarning] = useState("");
+  const [withoutDataOnly, setWithoutDataOnly] = useState(false);
   const [formState, setFormState] = useState<FormState>(null);
   const [formKey, setFormKey] = useState(0);
   const [feedback, setFeedback] = useState<{ kind: "success" | "error"; text: string } | null>(null);
@@ -67,13 +81,27 @@ export default function CollectionPage() {
       .catch((loadError: unknown) => setLoadWarning(loadError instanceof Error ? loadError.message : "Não foi possível carregar as fontes salvas."));
   }, []);
 
+  useEffect(() => {
+    fetch("/api/collection-coverage", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) throw new Error(await importErrorMessage(response, "Não foi possível carregar a cobertura de dados dos indicadores."));
+        const payload: unknown = await response.json();
+        if (!Array.isArray(payload)) throw new Error("A cobertura de dados veio em um formato inesperado.");
+        setCoverage(coverageByCode(payload as CoverageEntry[]));
+      })
+      .catch((loadError: unknown) => setCoverageWarning(loadError instanceof Error ? loadError.message : "Não foi possível carregar a cobertura de dados dos indicadores."));
+  }, []);
+
   const items = useMemo(() => mergeCollectionItems(collectionItems, savedSources), [savedSources]);
   const totals = useMemo(() => countByAccess(items), [items]);
   const dimensions = useMemo(() => collectionDimensions(items), [items]);
+  const withoutDataCount = useMemo(() => coverage ? countWithoutData(items, coverage) : 0, [items, coverage]);
   const visibleItems = useMemo(() => {
     const term = search.trim().toLowerCase();
-    return items.filter((item) => (accessFilter === "all" || item.access === accessFilter) && (!term || `${item.code} ${item.name} ${item.source} ${item.factor}`.toLowerCase().includes(term)));
-  }, [items, accessFilter, search]);
+    return items.filter((item) => (accessFilter === "all" || item.access === accessFilter)
+      && (!withoutDataOnly || !coverage || !hasData(item.code, coverage))
+      && (!term || `${item.code} ${item.name} ${item.source} ${item.factor}`.toLowerCase().includes(term)));
+  }, [items, accessFilter, search, withoutDataOnly, coverage]);
 
   function openForm(draft: CollectionDraft, isEditing: boolean) {
     setFeedback(null);
@@ -108,12 +136,13 @@ export default function CollectionPage() {
     <section className={styles.workspaceIntro}>
       <p className={styles.eyebrow}>COLETA</p>
       <h1>Onde buscar cada dado da matriz</h1>
-      <p>{items.length} indicadores em {dimensions.length} dimensões. {totals.link} podem ser importados direto por link, {totals.manual} exigem download manual e {totals.local} dependem de levantamento com a prefeitura.</p>
+      <p>{items.length} indicadores em {dimensions.length} dimensões. {totals.link} podem ser importados direto por link, {totals.manual} exigem download manual e {totals.local} dependem de levantamento com a prefeitura.{coverage ? ` Já há dados importados para ${items.length - withoutDataCount} deles.` : ""}</p>
       <div className={coleta.introActions}><button className={styles.secondaryLink} onClick={() => openForm(emptyCollectionDraft, false)} type="button"><Plus size={16} />Adicionar fonte</button></div>
     </section>
     {formState ? <section className={styles.analysisPanel}><SourceForm dimensions={dimensions} initial={formState.draft} isEditing={formState.isEditing} key={formKey} onCancel={() => setFormState(null)} onSaved={handleSaved} /></section> : null}
     {feedback ? <StatusNotice variant={feedback.kind}>{feedback.text}</StatusNotice> : null}
     {loadWarning ? <StatusNotice variant="warning">{loadWarning} A lista abaixo mostra só a matriz original; fontes que você adicionar não poderão ser salvas até isso ser resolvido.</StatusNotice> : null}
+    {coverageWarning ? <StatusNotice variant="warning">{coverageWarning} Os selos de dados importados e o filtro “Só sem dados” ficam indisponíveis até isso ser resolvido.</StatusNotice> : null}
     <section className={coleta.legend} aria-label="Como ler esta lista">
       <div><span className={`${coleta.badge} ${coleta.badge_link}`}><Link2 size={13} />{ACCESS_LABELS.link}</span><p>O botão leva à importação já com o link preenchido. Fontes grandes podem pedir para escolher a aba ou o arquivo certo.</p></div>
       <div><span className={`${coleta.badge} ${coleta.badge_manual}`}><Download size={13} />{ACCESS_LABELS.manual}</span><p>O dado é público, mas exige navegador ou passa de 200 MB. Baixe pelo passo a passo e envie o arquivo na importação.</p></div>
@@ -122,13 +151,14 @@ export default function CollectionPage() {
     <section className={styles.analysisPanel}>
       <div className={coleta.filters}>
         {(["all", "link", "manual", "local"] as const).map((option) => <button aria-pressed={accessFilter === option} className={accessFilter === option ? coleta.filterActive : undefined} key={option} onClick={() => setAccessFilter(option)} type="button">{option === "all" ? `Todos (${items.length})` : `${ACCESS_LABELS[option]} (${totals[option]})`}</button>)}
+        {coverage ? <button aria-pressed={withoutDataOnly} className={withoutDataOnly ? coleta.filterActive : undefined} onClick={() => setWithoutDataOnly((current) => !current)} type="button">Só sem dados ({withoutDataCount})</button> : null}
         <input aria-label="Buscar indicador" onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por código, nome ou fonte" type="search" value={search} />
       </div>
       {collectionDimensions(visibleItems).map((dimension) => <div key={dimension}>
         <h2 className={coleta.dimension}>{dimension}</h2>
-        <ul className={coleta.list}>{visibleItems.filter((item) => item.dimension === dimension).map((item) => <ItemRow item={item} key={item.code} onEdit={() => openForm(draftFromItem(item), true)} onRemove={() => void removeSaved(item)} />)}</ul>
+        <ul className={coleta.list}>{visibleItems.filter((item) => item.dimension === dimension).map((item) => <ItemRow coverage={coverage} item={item} key={item.code} onEdit={() => openForm(draftFromItem(item), true)} onRemove={() => void removeSaved(item)} />)}</ul>
       </div>)}
-      {visibleItems.length === 0 ? <p className={styles.fieldNote}>Nenhum indicador encontrado para esse filtro.</p> : null}
+      {visibleItems.length === 0 ? <p className={styles.fieldNote}>{withoutDataOnly && !search.trim() && accessFilter === "all" ? "Todos os indicadores já têm dados importados." : "Nenhum indicador encontrado para esse filtro."}</p> : null}
     </section>
   </main>;
 }
