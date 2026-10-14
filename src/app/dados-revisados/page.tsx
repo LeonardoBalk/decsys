@@ -1,12 +1,15 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
-import { RefreshCw } from "lucide-react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { FilterX, RefreshCw, X } from "lucide-react";
 import styles from "../page.module.css";
+import panels from "../_components/iiu/paineis.module.css";
 import { StatusNotice } from "../_components/status-notice";
+import { MunicipalitySearch } from "../_components/iiu/buscar-municipio";
 import { Indicator } from "@/lib/types/importacao";
 import { importErrorMessage } from "@/lib/import-error-message";
 import { formatReferencePeriod, hasMonthlyPeriods } from "@/lib/reference-period";
+import { activeFilterCount, emptyReviewedFilters, normalizePeriodInput, periodFilterError, reviewedDimensions, reviewedValuesQuery, type ReviewedFilters } from "@/lib/period-filter";
 
 type DashboardValue = {
   id: string;
@@ -37,7 +40,12 @@ function formatValue(value: DashboardValue["value"]) {
 export default function ReviewedDataPage() {
   const [dashboardPage, setDashboardPage] = useState<DashboardPage>({ items: [], total: 0, limit: PAGE_SIZE, offset: 0 });
   const [indicators, setIndicators] = useState<Indicator[]>([]);
-  const [selectedIndicator, setSelectedIndicator] = useState("");
+  const [filters, setFilters] = useState<ReviewedFilters>(emptyReviewedFilters);
+  const [municipalityLabel, setMunicipalityLabel] = useState("");
+  const filtersRef = useRef(filters);
+  const [searchText, setSearchText] = useState("");
+  const [periodFromText, setPeriodFromText] = useState("");
+  const [periodToText, setPeriodToText] = useState("");
   const [pageOffset, setPageOffset] = useState(0);
   const [isLoading, setIsLoading] = useState(true);
   const [message, setMessage] = useState("");
@@ -50,13 +58,27 @@ export default function ReviewedDataPage() {
       .catch(() => undefined);
   }, []);
 
+  const periodError = periodFilterError(periodFromText, periodToText);
+
+  useEffect(() => { filtersRef.current = filters; }, [filters]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      if (periodFilterError(periodFromText, periodToText)) return;
+      const nextFilters = { search: searchText.trim(), periodFrom: normalizePeriodInput(periodFromText) ?? "", periodTo: normalizePeriodInput(periodToText) ?? "" };
+      const current = filtersRef.current;
+      if (current.search === nextFilters.search && current.periodFrom === nextFilters.periodFrom && current.periodTo === nextFilters.periodTo) return;
+      setFilters({ ...current, ...nextFilters });
+      setPageOffset(0);
+    }, 400);
+    return () => window.clearTimeout(timer);
+  }, [searchText, periodFromText, periodToText]);
+
   useEffect(() => {
     let cancelled = false;
     setIsLoading(true);
     setMessage("");
-    const query = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(pageOffset) });
-    if (selectedIndicator) query.set("indicator_code", selectedIndicator);
-    fetch(`/api/dashboard-values?${query}`, { cache: "no-store" })
+    fetch(`/api/dashboard-values?${reviewedValuesQuery(filters, PAGE_SIZE, pageOffset)}`, { cache: "no-store" })
       .then(async (response) => {
         if (!response.ok) throw new Error(await importErrorMessage(response, "Não foi possível carregar os dados revisados."));
         const payload = await response.json();
@@ -67,16 +89,27 @@ export default function ReviewedDataPage() {
       .catch((loadError: unknown) => { if (!cancelled) setMessage(loadError instanceof Error ? loadError.message : "Não foi possível acessar o serviço de tratamento."); })
       .finally(() => { if (!cancelled) setIsLoading(false); });
     return () => { cancelled = true; };
-  }, [selectedIndicator, pageOffset, reloadAttempt]);
+  }, [filters, pageOffset, reloadAttempt]);
 
   function reload() {
     setReloadAttempt((attempt) => attempt + 1);
   }
 
-  function selectIndicator(indicatorCode: string) {
-    setSelectedIndicator(indicatorCode);
+  function updateFilter(changes: Partial<ReviewedFilters>) {
+    setFilters((current) => ({ ...current, ...changes }));
     setPageOffset(0);
   }
+
+  function clearFilters() {
+    setFilters(emptyReviewedFilters);
+    setMunicipalityLabel("");
+    setSearchText("");
+    setPeriodFromText("");
+    setPeriodToText("");
+    setPageOffset(0);
+  }
+
+  const filterCount = activeFilterCount(filters);
 
   const visibleValues = dashboardPage.items;
   const monthlyIndicators = useMemo(() => {
@@ -101,14 +134,28 @@ export default function ReviewedDataPage() {
       <div className={styles.profileSummary}><dl><div><dt>Registros aprovados</dt><dd>{dashboardPage.total.toLocaleString("pt-BR")}</dd></div><div><dt>Indicadores {hasMorePages ? "nesta página" : ""}</dt><dd>{new Set(visibleValues.map((dashboardValue) => dashboardValue.indicator_code)).size}</dd></div><div><dt>Período {hasMorePages ? "nesta página" : ""}</dt><dd>{periodRange}</dd></div><div><dt>Fontes {hasMorePages ? "nesta página" : ""}</dt><dd>{new Set(visibleValues.map((dashboardValue) => dashboardValue.source_name)).size}</dd></div></dl></div>
     </section>
     <section className={styles.analysisPanel}>
-      <div className={styles.sectionHeading}><div><h2>Filtrar a conferência</h2><span>Indicadores com unidades diferentes permanecem separados.</span></div></div>
-      <div className={styles.sourceForm}><label>Indicador<select onChange={(event) => selectIndicator(event.target.value)} value={selectedIndicator}><option value="">Todos os indicadores</option>{indicators.map((indicator) => <option key={indicator.code} value={indicator.code}>{indicator.name}</option>)}</select></label></div>
+      <div className={styles.sectionHeading}><div><h2>Filtrar a conferência</h2><span>Combine os filtros para encontrar rapidamente o que conferir. Indicadores com unidades diferentes permanecem separados.</span></div></div>
+      <div className={styles.sourceForm} style={{ marginTop: "var(--space-4)" }}>
+        <div className={panels.filterGrid}>
+          <label>Indicador<select onChange={(event) => updateFilter({ indicatorCode: event.target.value })} value={filters.indicatorCode}><option value="">Todos os indicadores</option>{indicators.map((indicator) => <option key={indicator.code} value={indicator.code}>{indicator.name}</option>)}</select></label>
+          <label>Dimensão<select onChange={(event) => updateFilter({ dimension: event.target.value })} value={filters.dimension}><option value="">Todas as dimensões</option>{reviewedDimensions.map((dimension) => <option key={dimension.value} value={dimension.value}>{dimension.label}</option>)}</select></label>
+          <label>Buscar por nome ou sigla<input onChange={(event) => setSearchText(event.target.value)} placeholder="Ex.: emprego ou eco01" type="search" value={searchText} /></label>
+          <label>Período inicial<input inputMode="numeric" onChange={(event) => setPeriodFromText(event.target.value)} placeholder="2020 ou 2020-05" value={periodFromText} /></label>
+          <label>Período final<input inputMode="numeric" onChange={(event) => setPeriodToText(event.target.value)} placeholder="2024 ou 2024-12" value={periodToText} /></label>
+          {filters.municipalityCode ? <div className={panels.activeMunicipality}><span className={styles.fieldNote}>Município</span><ul className={panels.chips}><li className={panels.chip}>{municipalityLabel}<button aria-label="Remover filtro de município" onClick={() => { setMunicipalityLabel(""); updateFilter({ municipalityCode: "" }); }} type="button"><X size={14} /></button></li></ul></div> : <MunicipalitySearch label="Município" onSelect={(municipality) => { setMunicipalityLabel(`${municipality.name} - ${municipality.state}`); updateFilter({ municipalityCode: municipality.ibge_code }); }} />}
+        </div>
+        {periodError ? <span className={styles.fieldNote} role="alert">{periodError}</span> : null}
+        <div className={panels.filterActions}>
+          <span>{filterCount ? `${filterCount} ${filterCount === 1 ? "filtro ativo" : "filtros ativos"}` : "Nenhum filtro ativo"}</span>
+          <button disabled={!filterCount && !searchText && !periodFromText && !periodToText} onClick={clearFilters} type="button"><FilterX size={16} />Limpar filtros</button>
+        </div>
+      </div>
     </section>
     {isLoading ? <StatusNotice variant="loading">Carregando valores aprovados.</StatusNotice> : null}
     {message ? <StatusNotice action={{ label: "Tentar novamente", onClick: reload }} variant="error">{message}</StatusNotice> : null}
     {!isLoading && !message ? <section className={styles.tableWorkspace}>
       <div className={styles.tableHeading}><div><p className={styles.eyebrow}>VALORES PUBLICADOS</p><h2>Conferência por registro</h2></div><span>{firstRow.toLocaleString("pt-BR")}–{lastRow.toLocaleString("pt-BR")} de {dashboardPage.total.toLocaleString("pt-BR")}</span></div>
-      {visibleValues.length ? <div className={styles.tableWrap}><table><thead><tr><th>Indicador</th><th>Período</th><th>Valor</th><th>Município</th><th>Fonte</th><th>Importação</th></tr></thead><tbody>{visibleValues.map((dashboardValue) => <tr key={dashboardValue.id}><td>{dashboardValue.indicator_name}</td><td>{formatReferencePeriod(dashboardValue.reference_period, dashboardValue.period_granularity ? dashboardValue.period_granularity === "month" : monthlyIndicators.has(dashboardValue.indicator_code))}</td><td>{formatValue(dashboardValue.value)} {dashboardValue.unit}</td><td title={dashboardValue.dimensions.municipality_ibge_code}>{dashboardValue.municipality_name ?? dashboardValue.dimensions.municipality_ibge_code ?? "-"}</td><td>{dashboardValue.source_name}</td><td>{dashboardValue.import_title}</td></tr>)}</tbody></table></div> : <p className={styles.profileGuidance}>{selectedIndicator ? "Nenhum valor aprovado para este indicador." : "Ainda não há valores aprovados. Salve uma importação, revise as colunas e aprove o indicador para ela aparecer aqui."}</p>}
+      {visibleValues.length ? <div className={styles.tableWrap}><table><thead><tr><th>Indicador</th><th>Período</th><th>Valor</th><th>Município</th><th>Fonte</th><th>Importação</th></tr></thead><tbody>{visibleValues.map((dashboardValue) => <tr key={dashboardValue.id}><td>{dashboardValue.indicator_name}</td><td>{formatReferencePeriod(dashboardValue.reference_period, dashboardValue.period_granularity ? dashboardValue.period_granularity === "month" : monthlyIndicators.has(dashboardValue.indicator_code))}</td><td>{formatValue(dashboardValue.value)} {dashboardValue.unit}</td><td title={dashboardValue.dimensions.municipality_ibge_code}>{dashboardValue.municipality_name ?? dashboardValue.dimensions.municipality_ibge_code ?? "-"}</td><td>{dashboardValue.source_name}</td><td>{dashboardValue.import_title}</td></tr>)}</tbody></table></div> : <p className={styles.profileGuidance}>{filterCount ? "Nenhum valor aprovado combina com estes filtros. Ajuste ou limpe os filtros para ver mais." : "Ainda não há valores aprovados. Salve uma importação, revise as colunas e aprove o indicador para ela aparecer aqui."}</p>}
       {hasMorePages ? <div className={styles.pagination}>
         <span>Página {Math.floor(dashboardPage.offset / PAGE_SIZE) + 1} de {Math.ceil(dashboardPage.total / PAGE_SIZE)}</span>
         <div>
