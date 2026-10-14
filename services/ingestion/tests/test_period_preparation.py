@@ -104,8 +104,8 @@ class PeriodPreparationTests(unittest.TestCase):
 
 
 class WidePeriodTransformTests(unittest.TestCase):
-    @patch("services.ingestion.app.main.upsert_staged_rows")
-    @patch("services.ingestion.app.main.fetch_rows_for_municipality_resolution")
+    @patch("services.ingestion.app.import_store.upsert_staged_rows")
+    @patch("services.ingestion.app.municipalities.fetch_rows_for_municipality_resolution")
     def test_annual_columns_keep_codes_confirmed_in_the_ibge_lookup(self, fetch_rows, upsert_rows):
         fetch_rows.return_value = [
             staged_row(1, {"municipio": "Campinas (SP)", "valor_2021": "1.234,5"}, {"municipality_ibge_code": "3509502", "municipality_code_source": "ibge_lookup"}),
@@ -119,8 +119,8 @@ class WidePeriodTransformTests(unittest.TestCase):
         self.assertEqual(saved_rows[1], {})
         self.assertEqual((result["granularity"], result["transformed_rows"], result["skipped_rows"]), ("year", 1, 1))
 
-    @patch("services.ingestion.app.main.upsert_staged_rows")
-    @patch("services.ingestion.app.main.fetch_rows_for_municipality_resolution")
+    @patch("services.ingestion.app.import_store.upsert_staged_rows")
+    @patch("services.ingestion.app.municipalities.fetch_rows_for_municipality_resolution")
     def test_monthly_columns_set_the_reference_month(self, fetch_rows, upsert_rows):
         fetch_rows.return_value = [staged_row(1, {"cod": "3550308", "julho_2026_saldos": 7})]
 

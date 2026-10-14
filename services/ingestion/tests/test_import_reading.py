@@ -267,7 +267,7 @@ class ImportReadingTests(unittest.TestCase):
         self.assertEqual(header_name, "dados municipais.xlsx")
         self.assertEqual(mime_name, "download.xlsx")
 
-    @patch("services.ingestion.app.main.assess_source", return_value={"status": "skipped", "summary": "Teste local"})
+    @patch("services.ingestion.app.ai_assessment.assess_source", return_value={"status": "skipped", "summary": "Teste local"})
     def test_profile_endpoint_returns_the_parsed_csv_structure(self, assess_source):
         client = TestClient(main.app)
 
@@ -289,16 +289,16 @@ class ImportReadingTests(unittest.TestCase):
 
     def test_keepalive_endpoint_runs_a_read_only_database_query(self):
         with patch.dict("os.environ", {"KEEPALIVE_SECRET": "local-test-secret"}):
-            with patch("services.ingestion.app.main.supabase_headers", return_value={}), patch("services.ingestion.app.main.supabase_url", return_value="https://supabase.test/rest/v1/imports"), patch("services.ingestion.app.main.httpx.get", return_value=self.successful_response([])) as database_query:
+            with patch("services.ingestion.app.supabase_client.supabase_headers", return_value={}), patch("services.ingestion.app.supabase_client.supabase_url", return_value="https://supabase.test/rest/v1/imports"), patch("services.ingestion.app.main.httpx.get", return_value=self.successful_response([])) as database_query:
                 response = TestClient(main.app).get("/keepalive", headers={"Authorization": "Bearer local-test-secret"})
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json(), {"status": "ok", "database": "reachable"})
         self.assertEqual(database_query.call_args.kwargs["params"], {"select": "id", "limit": "1"})
 
-    @patch("services.ingestion.app.main.assess_source", return_value={"status": "skipped", "summary": "Teste local"})
-    @patch("services.ingestion.app.main.supabase_headers", return_value={})
-    @patch("services.ingestion.app.main.supabase_url", side_effect=lambda path: f"https://supabase.test{path}")
+    @patch("services.ingestion.app.ai_assessment.assess_source", return_value={"status": "skipped", "summary": "Teste local"})
+    @patch("services.ingestion.app.supabase_client.supabase_headers", return_value={})
+    @patch("services.ingestion.app.supabase_client.supabase_url", side_effect=lambda path: f"https://supabase.test{path}")
     @patch("services.ingestion.app.main.httpx.post")
     @patch("services.ingestion.app.main.httpx.patch")
     def test_draft_persists_all_readable_sheets_and_keeps_sheet_row_numbers(self, patch_request, post_request, supabase_url, supabase_headers, assess_source):
@@ -320,9 +320,9 @@ class ImportReadingTests(unittest.TestCase):
         staged_row_records = post_request.call_args_list[4].kwargs["json"]
         self.assertEqual([(row["sheet_name"], row["row_number"]) for row in staged_row_records], [("Base municipal", 1), ("Base municipal", 2), ("Outra tabela", 1)])
 
-    @patch("services.ingestion.app.main.write_import_records", return_value={"import_id": "import-id"})
-    @patch("services.ingestion.app.main.import_tables", return_value=[("Base municipal", pl.DataFrame({"codigo": ["3550308"]}))])
-    @patch("services.ingestion.app.main.resolve_sheet_name")
+    @patch("services.ingestion.app.import_store.write_import_records", return_value={"import_id": "import-id"})
+    @patch("services.ingestion.app.table_reading.import_tables", return_value=[("Base municipal", pl.DataFrame({"codigo": ["3550308"]}))])
+    @patch("services.ingestion.app.table_reading.resolve_sheet_name")
     def test_importing_all_sheets_reuses_the_cached_profile_sheet(self, resolve_sheet_name, import_tables, write_import_records):
         cached_profiles = {"Base municipal": {"selected_sheet": "Base municipal", "columns": [], "sample": []}}
 
@@ -346,7 +346,7 @@ class ImportReadingTests(unittest.TestCase):
                     read_table("dados.xlsx", source_content)
                 self.assertEqual(caught_error.exception.status_code, 422)
 
-    @patch("services.ingestion.app.main.fetch_import_rows")
+    @patch("services.ingestion.app.import_store.fetch_import_rows")
     def test_xlsx_export_keeps_each_imported_sheet_separate(self, fetch_rows):
         fetch_rows.return_value = [
             {"sheet_name": "Municípios", "row_number": 1, "raw_row": {"codigo": "3550308", "valor": 12.5}},
@@ -360,7 +360,7 @@ class ImportReadingTests(unittest.TestCase):
         self.assertEqual(list(workbook["Municípios"].values), [("codigo", "valor"), ("3550308", 12.5)])
         self.assertEqual(list(workbook["Indicadores"].values), [("indicador", "valor"), ("A", 8)])
 
-    @patch("services.ingestion.app.main.fetch_import_rows")
+    @patch("services.ingestion.app.import_store.fetch_import_rows")
     def test_csv_export_marks_sheet_and_serializes_nested_fields(self, fetch_rows):
         fetch_rows.return_value = [
             {"sheet_name": "Uma", "row_number": 1, "raw_row": {"aba": "valor de origem", "detalhes": {"fonte": "IBGE"}}},
@@ -375,8 +375,8 @@ class ImportReadingTests(unittest.TestCase):
         self.assertEqual(exported_rows[2], ["Duas", "outro valor", "[1,2]"])
 
     @patch("services.ingestion.app.main.httpx.get")
-    @patch("services.ingestion.app.main.supabase_headers", return_value={})
-    @patch("services.ingestion.app.main.supabase_url", side_effect=lambda path: f"https://supabase.test{path}")
+    @patch("services.ingestion.app.supabase_client.supabase_headers", return_value={})
+    @patch("services.ingestion.app.supabase_client.supabase_url", side_effect=lambda path: f"https://supabase.test{path}")
     def test_export_reads_every_supabase_page(self, supabase_url, supabase_headers, get_request):
         first_page = [{"sheet_name": "Dados", "row_number": row_number, "raw_row": {"valor": row_number}} for row_number in range(1, 1001)]
         second_page = [{"sheet_name": "Dados", "row_number": 1001, "raw_row": {"valor": 1001}}]

@@ -16,10 +16,10 @@ class SuccessfulResponse:
 
 
 class IndicatorCalculationTests(unittest.TestCase):
-    @patch("services.ingestion.app.main.ensure_municipal_catalog_registered")
-    @patch("services.ingestion.app.main.get_indicator", return_value={"calculation_type": "ratio", "calculation_multiplier": 100})
-    @patch("services.ingestion.app.main.supabase_headers", return_value={})
-    @patch("services.ingestion.app.main.supabase_url", side_effect=lambda path: f"https://supabase.test{path}")
+    @patch("services.ingestion.app.municipalities.ensure_municipal_catalog_registered")
+    @patch("services.ingestion.app.routes_indicators.get_indicator", return_value={"calculation_type": "ratio", "calculation_multiplier": 100})
+    @patch("services.ingestion.app.supabase_client.supabase_headers", return_value={})
+    @patch("services.ingestion.app.supabase_client.supabase_url", side_effect=lambda path: f"https://supabase.test{path}")
     @patch("services.ingestion.app.main.httpx.post")
     def test_ratio_values_are_prepared_before_municipal_approval(self, post_request, *_):
         post_request.side_effect = [SuccessfulResponse(6), SuccessfulResponse(4)]
@@ -44,8 +44,8 @@ class IndicatorCalculationTests(unittest.TestCase):
         self.assertEqual(approval_request.kwargs["json"]["value_field"], "value")
         self.assertEqual(result["approved_rows"], 4)
 
-    @patch("services.ingestion.app.main.supabase_headers", return_value={})
-    @patch("services.ingestion.app.main.supabase_url", side_effect=lambda path: f"https://supabase.test{path}")
+    @patch("services.ingestion.app.supabase_client.supabase_headers", return_value={})
+    @patch("services.ingestion.app.supabase_client.supabase_url", side_effect=lambda path: f"https://supabase.test{path}")
     @patch("services.ingestion.app.main.httpx.post", return_value=SuccessfulResponse({"total_rows": 3, "valid_rows": 2, "invalid_rows": 1, "examples": []}))
     def test_direct_preview_passes_the_selected_source_column(self, post_request, *_):
         preview = main.MunicipalCalculationPreview(calculation_type="direct", direct_field="pib_per_capita", sheet_name="Tabela 1")

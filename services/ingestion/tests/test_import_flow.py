@@ -42,7 +42,7 @@ def failed_response(response_json):
 class SourceSizeLimitTests(unittest.TestCase):
     def test_compressed_files_cannot_expand_past_the_limit(self):
         compressed_content = gzip.compress(b"a" * 2048)
-        with patch.object(main, "maximum_source_bytes", 1024):
+        with patch("services.ingestion.app.config.maximum_source_bytes", 1024):
             with self.assertRaises(HTTPException) as caught_error:
                 main.read_table("dados.csv.gz", compressed_content)
         self.assertEqual(caught_error.exception.status_code, 413)
@@ -51,13 +51,13 @@ class SourceSizeLimitTests(unittest.TestCase):
         archive_buffer = BytesIO()
         with ZipFile(archive_buffer, "w", ZIP_DEFLATED) as archive:
             archive.writestr("dados.csv", "valor\n" + "1\n" * 2048)
-        with patch.object(main, "maximum_source_bytes", 1024):
+        with patch("services.ingestion.app.config.maximum_source_bytes", 1024):
             with self.assertRaises(HTTPException) as caught_error:
                 main.read_table("dados.zip", archive_buffer.getvalue())
         self.assertEqual(caught_error.exception.status_code, 413)
 
     def test_uploads_larger_than_the_limit_are_rejected(self):
-        with patch.object(main, "maximum_source_bytes", 16):
+        with patch("services.ingestion.app.config.maximum_source_bytes", 16):
             response = TestClient(main.app).post("/profile", files={"file": ("dados.csv", "valor\n" + "1\n" * 32, "text/csv")})
         self.assertEqual(response.status_code, 413)
 
@@ -143,7 +143,7 @@ class UploadTokenTests(unittest.TestCase):
         workbook.save(workbook_buffer)
         return workbook_buffer.getvalue()
 
-    @patch("services.ingestion.app.main.assess_source", return_value={"status": "skipped", "summary": "ok"})
+    @patch("services.ingestion.app.ai_assessment.assess_source", return_value={"status": "skipped", "summary": "ok"})
     def test_sheet_changes_reuse_the_uploaded_file(self, assess_source):
         client = TestClient(main.app)
         first_response = client.post("/profile", files={"file": ("dados.xlsx", self.workbook_content(), "application/octet-stream")}, data={"sheet_name": "Base"})
@@ -162,13 +162,13 @@ class UploadTokenTests(unittest.TestCase):
         self.assertEqual(response.status_code, 410)
 
     def test_cache_evicts_the_oldest_sources_when_full(self):
-        with patch.object(main, "source_cache_max_bytes", 10):
+        with patch("services.ingestion.app.config.source_cache_max_bytes", 10):
             first_token = main.remember_source("a.csv", b"123456", None)
             second_token = main.remember_source("b.csv", b"123456", None)
         self.assertNotIn(first_token, main.source_cache)
         self.assertIn(second_token, main.source_cache)
 
-    @patch("services.ingestion.app.main.persist_import")
+    @patch("services.ingestion.app.import_store.persist_import")
     def test_draft_uses_the_profile_already_computed(self, persist_import):
         upload_token = main.remember_source("dados.csv", b"valor\n1\n", None)
         main.source_cache[upload_token]["profiles"][""] = {"file_name": "dados.csv"}
@@ -181,8 +181,8 @@ class UploadTokenTests(unittest.TestCase):
 
 
 class PartialImportCleanupTests(unittest.TestCase):
-    @patch("services.ingestion.app.main.supabase_headers", return_value={})
-    @patch("services.ingestion.app.main.supabase_url", side_effect=lambda path: f"https://supabase.test{path}")
+    @patch("services.ingestion.app.supabase_client.supabase_headers", return_value={})
+    @patch("services.ingestion.app.supabase_client.supabase_url", side_effect=lambda path: f"https://supabase.test{path}")
     @patch("services.ingestion.app.main.httpx.delete")
     @patch("services.ingestion.app.main.httpx.post")
     def test_failed_row_staging_removes_what_was_already_written(self, post_request, delete_request, supabase_url, supabase_headers):
@@ -204,9 +204,9 @@ class PartialImportCleanupTests(unittest.TestCase):
 
 
 class IncludeAdditionalSheetsTests(unittest.TestCase):
-    @patch("services.ingestion.app.main.supabase_headers", return_value={})
-    @patch("services.ingestion.app.main.supabase_url", side_effect=lambda path: f"https://supabase.test{path}")
-    @patch("services.ingestion.app.main.import_tables")
+    @patch("services.ingestion.app.supabase_client.supabase_headers", return_value={})
+    @patch("services.ingestion.app.supabase_client.supabase_url", side_effect=lambda path: f"https://supabase.test{path}")
+    @patch("services.ingestion.app.table_reading.import_tables")
     @patch("services.ingestion.app.main.httpx.patch")
     @patch("services.ingestion.app.main.httpx.post")
     @patch("services.ingestion.app.main.httpx.get")
@@ -240,8 +240,8 @@ class DashboardValuesTests(unittest.TestCase):
         self.assertEqual(main.total_from_content_range("*/0", 0), 0)
         self.assertEqual(main.total_from_content_range(None, 17), 17)
 
-    @patch("services.ingestion.app.main.supabase_headers", return_value={})
-    @patch("services.ingestion.app.main.supabase_url", side_effect=lambda path: f"https://supabase.test{path}")
+    @patch("services.ingestion.app.supabase_client.supabase_headers", return_value={})
+    @patch("services.ingestion.app.supabase_client.supabase_url", side_effect=lambda path: f"https://supabase.test{path}")
     @patch("services.ingestion.app.main.httpx.get")
     def test_values_are_paginated_and_receive_municipality_names(self, get_request, supabase_url, supabase_headers):
         get_request.side_effect = [
@@ -255,8 +255,8 @@ class DashboardValuesTests(unittest.TestCase):
         self.assertEqual(result["items"][0]["municipality_name"], "São Paulo (SP)")
 
 
-    @patch("services.ingestion.app.main.supabase_headers", return_value={})
-    @patch("services.ingestion.app.main.supabase_url", side_effect=lambda path: f"https://supabase.test{path}")
+    @patch("services.ingestion.app.supabase_client.supabase_headers", return_value={})
+    @patch("services.ingestion.app.supabase_client.supabase_url", side_effect=lambda path: f"https://supabase.test{path}")
     @patch("services.ingestion.app.main.httpx.get")
     def test_values_still_load_before_the_granularity_migration(self, get_request, supabase_url, supabase_headers):
         missing_column = failed_response({"message": "column dashboard_values.period_granularity does not exist"})
@@ -271,8 +271,8 @@ class DashboardValuesTests(unittest.TestCase):
 
 
 class IiuCoverageTests(unittest.TestCase):
-    @patch("services.ingestion.app.main.supabase_headers", return_value={})
-    @patch("services.ingestion.app.main.supabase_url", side_effect=lambda path: f"https://supabase.test{path}")
+    @patch("services.ingestion.app.supabase_client.supabase_headers", return_value={})
+    @patch("services.ingestion.app.supabase_client.supabase_url", side_effect=lambda path: f"https://supabase.test{path}")
     @patch("services.ingestion.app.main.httpx.get")
     def test_values_outside_the_iiu_catalog_do_not_count_as_coverage(self, get_request, supabase_url, supabase_headers):
         catalog = [{"code": "a", "name": "A", "iiu_type": "q", "unit": "%", "formula": "", "source_description": "", "score_direction": "higher", "iiu_dimension_code": "d1", "checklist_max": None}]

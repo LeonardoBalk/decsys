@@ -31,7 +31,7 @@ class MunicipalityMatchingTests(unittest.TestCase):
 
         self.assertEqual(municipality_catalog, [{"ibge_code": "5101837", "name": "Boa Esperança do Norte", "state": "MT"}])
 
-    @patch("services.ingestion.app.main.fetch_ibge_municipalities")
+    @patch("services.ingestion.app.municipalities.fetch_ibge_municipalities")
     def test_ibge_catalog_is_fetched_once_and_reused(self, fetch_catalog):
         fetch_catalog.return_value = self.municipalities
 
@@ -40,8 +40,8 @@ class MunicipalityMatchingTests(unittest.TestCase):
 
         fetch_catalog.assert_called_once()
 
-    @patch("services.ingestion.app.main.fetch_rows_for_municipality_resolution")
-    @patch("services.ingestion.app.main.fetch_ibge_municipalities")
+    @patch("services.ingestion.app.municipalities.fetch_rows_for_municipality_resolution")
+    @patch("services.ingestion.app.municipalities.fetch_ibge_municipalities")
     def test_suggestions_match_exact_city_and_state_and_flag_ambiguous_rows(self, fetch_catalog, fetch_rows):
         fetch_catalog.return_value = self.municipalities
         fetch_rows.return_value = [
@@ -64,10 +64,10 @@ class MunicipalityMatchingTests(unittest.TestCase):
         self.assertEqual(result["matches"][4]["status"], "unmatched")
 
     @patch("services.ingestion.app.main.httpx.post")
-    @patch("services.ingestion.app.main.supabase_headers", return_value={})
-    @patch("services.ingestion.app.main.supabase_url", side_effect=lambda path: f"https://supabase.test{path}")
-    @patch("services.ingestion.app.main.fetch_rows_for_municipality_resolution")
-    @patch("services.ingestion.app.main.fetch_ibge_municipalities")
+    @patch("services.ingestion.app.supabase_client.supabase_headers", return_value={})
+    @patch("services.ingestion.app.supabase_client.supabase_url", side_effect=lambda path: f"https://supabase.test{path}")
+    @patch("services.ingestion.app.municipalities.fetch_rows_for_municipality_resolution")
+    @patch("services.ingestion.app.municipalities.fetch_ibge_municipalities")
     def test_confirmed_matches_register_official_municipality_and_preserve_other_normalized_fields(self, fetch_catalog, fetch_rows, supabase_url, supabase_headers, post_request):
         fetch_catalog.return_value = self.municipalities
         fetch_rows.return_value = [{"id": 15, "sheet_name": "Dados", "row_number": 1, "raw_row": {"municipio": "Campinas (SP)"}, "normalized_row": {"value": "12.5", "reference_year": "2024"}}]
@@ -85,10 +85,10 @@ class MunicipalityMatchingTests(unittest.TestCase):
         self.assertEqual(rows_call.kwargs["json"][0]["sheet_name"], "Dados")
 
     @patch("services.ingestion.app.main.httpx.post")
-    @patch("services.ingestion.app.main.supabase_headers", return_value={})
-    @patch("services.ingestion.app.main.supabase_url", side_effect=lambda path: f"https://supabase.test{path}")
-    @patch("services.ingestion.app.main.fetch_rows_for_municipality_resolution")
-    @patch("services.ingestion.app.main.fetch_ibge_municipalities")
+    @patch("services.ingestion.app.supabase_client.supabase_headers", return_value={})
+    @patch("services.ingestion.app.supabase_client.supabase_url", side_effect=lambda path: f"https://supabase.test{path}")
+    @patch("services.ingestion.app.municipalities.fetch_rows_for_municipality_resolution")
+    @patch("services.ingestion.app.municipalities.fetch_ibge_municipalities")
     def test_reviewer_can_choose_a_candidate_or_type_an_official_code(self, fetch_catalog, fetch_rows, supabase_url, supabase_headers, post_request):
         fetch_catalog.return_value = self.municipalities
         fetch_rows.return_value = [
@@ -106,8 +106,8 @@ class MunicipalityMatchingTests(unittest.TestCase):
         self.assertEqual([row["normalized_row"]["municipality_ibge_code"] for row in post_request.call_args_list[1].kwargs["json"]], ["4302303", "3550308"])
 
     @patch("services.ingestion.app.main.httpx.post")
-    @patch("services.ingestion.app.main.fetch_rows_for_municipality_resolution")
-    @patch("services.ingestion.app.main.fetch_ibge_municipalities")
+    @patch("services.ingestion.app.municipalities.fetch_rows_for_municipality_resolution")
+    @patch("services.ingestion.app.municipalities.fetch_ibge_municipalities")
     def test_confirmation_rejects_a_code_that_does_not_match_the_source_name(self, fetch_catalog, fetch_rows, post_request):
         fetch_catalog.return_value = self.municipalities
         fetch_rows.return_value = [{"id": 15, "row_number": 1, "raw_row": {"municipio": "Campinas (SP)"}, "normalized_row": {}}]
@@ -120,8 +120,8 @@ class MunicipalityMatchingTests(unittest.TestCase):
         post_request.assert_not_called()
 
     @patch("services.ingestion.app.main.httpx.post")
-    @patch("services.ingestion.app.main.fetch_rows_for_municipality_resolution")
-    @patch("services.ingestion.app.main.fetch_ibge_municipalities")
+    @patch("services.ingestion.app.municipalities.fetch_rows_for_municipality_resolution")
+    @patch("services.ingestion.app.municipalities.fetch_ibge_municipalities")
     def test_manual_code_must_exist_in_the_official_catalog(self, fetch_catalog, fetch_rows, post_request):
         fetch_catalog.return_value = self.municipalities
         fetch_rows.return_value = [{"id": 15, "row_number": 1, "raw_row": {"municipio": "Sampa"}, "normalized_row": {}}]
@@ -133,10 +133,10 @@ class MunicipalityMatchingTests(unittest.TestCase):
         post_request.assert_not_called()
 
     @patch("services.ingestion.app.main.httpx.post")
-    @patch("services.ingestion.app.main.supabase_headers", return_value={})
-    @patch("services.ingestion.app.main.supabase_url", side_effect=lambda path: f"https://supabase.test{path}")
-    @patch("services.ingestion.app.main.fetch_rows_for_municipality_resolution")
-    @patch("services.ingestion.app.main.fetch_ibge_municipalities")
+    @patch("services.ingestion.app.supabase_client.supabase_headers", return_value={})
+    @patch("services.ingestion.app.supabase_client.supabase_url", side_effect=lambda path: f"https://supabase.test{path}")
+    @patch("services.ingestion.app.municipalities.fetch_rows_for_municipality_resolution")
+    @patch("services.ingestion.app.municipalities.fetch_ibge_municipalities")
     def test_confirming_again_clears_codes_the_reviewer_removed(self, fetch_catalog, fetch_rows, supabase_url, supabase_headers, post_request):
         fetch_catalog.return_value = self.municipalities
         fetch_rows.return_value = [
@@ -152,7 +152,7 @@ class MunicipalityMatchingTests(unittest.TestCase):
         self.assertEqual(saved_rows[2], {"value": "4"})
         self.assertNotIn(3, saved_rows)
 
-    @patch("services.ingestion.app.main.fetch_ibge_municipalities")
+    @patch("services.ingestion.app.municipalities.fetch_ibge_municipalities")
     def test_catalog_search_accepts_names_states_and_codes(self, fetch_catalog):
         fetch_catalog.return_value = self.municipalities
 

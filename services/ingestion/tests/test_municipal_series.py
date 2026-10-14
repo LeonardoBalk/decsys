@@ -53,13 +53,13 @@ class MunicipalityFormatTests(unittest.TestCase):
         self.assertEqual(main.municipality_candidates("Ro-Alta Floresta D Oeste", indexes), ("matched", [catalog[2]]))
 
 
-@patch("services.ingestion.app.main.ensure_municipal_catalog_registered")
-@patch("services.ingestion.app.main.ibge_municipality_catalog", return_value=catalog)
-@patch("services.ingestion.app.main.supabase_headers", return_value={})
-@patch("services.ingestion.app.main.supabase_url", side_effect=lambda path: f"https://supabase.test{path}")
-@patch("services.ingestion.app.main.get_indicator", return_value={"calculation_type": "direct"})
+@patch("services.ingestion.app.municipalities.ensure_municipal_catalog_registered")
+@patch("services.ingestion.app.municipalities.ibge_municipality_catalog", return_value=catalog)
+@patch("services.ingestion.app.supabase_client.supabase_headers", return_value={})
+@patch("services.ingestion.app.supabase_client.supabase_url", side_effect=lambda path: f"https://supabase.test{path}")
+@patch("services.ingestion.app.routes_indicators.get_indicator", return_value={"calculation_type": "direct"})
 class ApprovalOrchestrationTests(unittest.TestCase):
-    @patch("services.ingestion.app.main.fetch_rows_for_municipality_resolution")
+    @patch("services.ingestion.app.municipalities.fetch_rows_for_municipality_resolution")
     @patch("services.ingestion.app.main.httpx.post")
     def test_approval_prepares_municipality_period_and_value_before_calling_the_database(self, post_request, fetch_rows, *_):
         fetch_rows.return_value = [
@@ -83,7 +83,7 @@ class ApprovalOrchestrationTests(unittest.TestCase):
         self.assertEqual(result["value_problems"], [{"row_number": 2, "value": "sigiloso"}])
         self.assertEqual(result["municipality_problems"], [{"row_number": 3, "value": "999999"}])
 
-    @patch("services.ingestion.app.main.fetch_rows_for_municipality_resolution")
+    @patch("services.ingestion.app.municipalities.fetch_rows_for_municipality_resolution")
     @patch("services.ingestion.app.main.httpx.post", return_value=successful_response(40))
     def test_rows_already_prepared_go_straight_to_the_database(self, post_request, fetch_rows, *_):
         result = main.approve_municipal_import("import-id", main.MunicipalApproval(indicator_id="i", municipality_field="municipality_ibge_code", value_field="value", unit="u", sheet_name="Aba · saldos por período", period=main.PeriodSelection(mode="prepared")))
@@ -93,7 +93,7 @@ class ApprovalOrchestrationTests(unittest.TestCase):
         self.assertEqual(result["approved_rows"], 40)
 
     def test_legacy_requests_with_only_a_year_column_still_work(self, *_):
-        with patch("services.ingestion.app.main.fetch_rows_for_municipality_resolution", return_value=[]), patch("services.ingestion.app.main.upsert_staged_rows"), patch("services.ingestion.app.main.httpx.post", return_value=successful_response(0)):
+        with patch("services.ingestion.app.municipalities.fetch_rows_for_municipality_resolution", return_value=[]), patch("services.ingestion.app.import_store.upsert_staged_rows"), patch("services.ingestion.app.main.httpx.post", return_value=successful_response(0)):
             result = main.approve_municipal_import("import-id", main.MunicipalApproval(indicator_id="i", municipality_field="cod", year_field="ano", value_field="valor", unit="u"))
         self.assertEqual(result["status"], "needs_review")
 
@@ -102,9 +102,9 @@ class CatalogRegistrationTests(unittest.TestCase):
     def setUp(self):
         main.municipal_catalog_registration["registered_until"] = 0.0
 
-    @patch("services.ingestion.app.main.supabase_headers", return_value={})
-    @patch("services.ingestion.app.main.supabase_url", side_effect=lambda path: f"https://supabase.test{path}")
-    @patch("services.ingestion.app.main.ibge_municipality_catalog", return_value=catalog * 500)
+    @patch("services.ingestion.app.supabase_client.supabase_headers", return_value={})
+    @patch("services.ingestion.app.supabase_client.supabase_url", side_effect=lambda path: f"https://supabase.test{path}")
+    @patch("services.ingestion.app.municipalities.ibge_municipality_catalog", return_value=catalog * 500)
     @patch("services.ingestion.app.main.httpx.post", return_value=successful_response(1000))
     def test_the_whole_catalog_is_registered_once_in_batches(self, post_request, *_):
         main.ensure_municipal_catalog_registered()
@@ -114,9 +114,9 @@ class CatalogRegistrationTests(unittest.TestCase):
         self.assertEqual(len(post_request.call_args_list[0].kwargs["json"]["selected_municipalities"]), 1000)
 
 
-@patch("services.ingestion.app.main.ensure_municipal_catalog_registered")
-@patch("services.ingestion.app.main.supabase_headers", return_value={})
-@patch("services.ingestion.app.main.supabase_url", side_effect=lambda path: f"https://supabase.test{path}")
+@patch("services.ingestion.app.municipalities.ensure_municipal_catalog_registered")
+@patch("services.ingestion.app.supabase_client.supabase_headers", return_value={})
+@patch("services.ingestion.app.supabase_client.supabase_url", side_effect=lambda path: f"https://supabase.test{path}")
 class PeriodExpansionTests(unittest.TestCase):
     @patch("services.ingestion.app.main.httpx.get")
     @patch("services.ingestion.app.main.httpx.post")

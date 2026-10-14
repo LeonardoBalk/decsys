@@ -17,7 +17,7 @@ class LinkDiscoveryTests(unittest.TestCase):
 
     def test_blocked_munic_page_is_resolved_without_downloading_the_page(self):
         blocked = AsyncMock(side_effect=HTTPException(403, "bloqueado por WAF"))
-        with patch.object(main, "discover_munic_resources", return_value=MUNIC_CANDIDATES), patch.object(main, "download_source", blocked):
+        with patch("services.ingestion.app.remote_sources.discover_munic_resources", return_value=MUNIC_CANDIDATES), patch("services.ingestion.app.remote_sources.download_source", blocked):
             response = self.client.post("/profile-link", json={"source_url": MUNIC_PAGE})
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["kind"], "web_page")
@@ -28,7 +28,7 @@ class LinkDiscoveryTests(unittest.TestCase):
         discover = unittest_mock_discover()
         csv_bytes = b"codmun;valor\n3509502;1\n"
         download = AsyncMock(return_value=("base.csv", csv_bytes, "text/csv", "https://ftp.ibge.gov.br/Perfil_Municipios/2024/base.csv"))
-        with patch.object(main, "discover_munic_resources", discover), patch.object(main, "download_source", download):
+        with patch("services.ingestion.app.remote_sources.discover_munic_resources", discover), patch("services.ingestion.app.remote_sources.download_source", download):
             response = self.client.post("/profile-link", json={"source_url": "https://ftp.ibge.gov.br/Perfil_Municipios/2024/base.csv"})
         self.assertEqual(response.status_code, 200)
         self.assertNotEqual(response.json().get("kind"), "web_page")
