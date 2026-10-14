@@ -12,7 +12,6 @@ from .supabase_client import registry_error, upstream_error
 router = APIRouter()
 
 
-# Valores sinteticos da demonstracao, indexados pela sigla da matriz (o codigo completo do indicador comeca por ela).
 iiu_demonstration_values = {
     "eco01": 48500.0, "eco02": 72.0, "eco03": 38.0, "eco04": 3100.0, "eco06": 26.0, "eco07": 9.0,
     "pes01": 96.0, "pes02": 22.0, "pes03": 97.0, "pes05": 6.1, "pes07": 11.0,
@@ -76,7 +75,6 @@ def latest_value_per_municipality(rows: list[dict[str, Any]]) -> list[dict[str, 
 
 @router.get("/iiu-configuration/benchmark-suggestion")
 def suggest_iiu_indicator_benchmark(indicator_code: str) -> dict[str, Any]:
-    """Sugere a faixa de referencia (percentis 10 e 90) a partir dos valores publicados de todos os municipios."""
     collected: list[dict[str, Any]] = []
     page_size = 1000
     for page_start in range(0, 200_000, page_size):

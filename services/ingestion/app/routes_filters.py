@@ -30,7 +30,6 @@ def run_row_filter(import_id: str, request: RowFilterRequest, progress: Any = No
 
 @router.post("/imports/{import_id}/filter-rows")
 def filter_import_rows(import_id: str, request: RowFilterRequest, response: Response, background: bool = False) -> dict[str, Any]:
-    """Cria uma aba nova só com as linhas que passam nos filtros. A aba original não é alterada."""
     if background:
         job = jobs.start_job("filter", import_id, lambda running_job: run_row_filter(import_id, request, running_job.report))
         response.status_code = 202

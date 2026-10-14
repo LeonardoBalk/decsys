@@ -1,4 +1,3 @@
-"""Filtros de linhas aplicados antes da aprovação (ex.: só o ano mais recente, só uma categoria)."""
 from decimal import Decimal, InvalidOperation
 from typing import Any, Literal
 
@@ -62,7 +61,6 @@ def latest_value_of(rows: list[dict[str, Any]], field: str) -> str | None:
 
 
 def apply_row_filters(rows: list[dict[str, Any]], request: RowFilterRequest) -> list[dict[str, Any]]:
-    """Devolve as linhas que passam em TODOS os filtros; com keep_latest_of, só as do maior valor dessa coluna."""
     kept = [row for row in rows if all(row_matches(row, row_filter) for row_filter in request.filters)]
     if request.keep_latest_of:
         latest = latest_value_of(kept, request.keep_latest_of)

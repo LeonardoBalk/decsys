@@ -6,7 +6,9 @@ import { ArrowLeft } from "lucide-react";
 import styles from "../../page.module.css";
 import { StatusNotice } from "../../_components/status-notice";
 import { importErrorMessage } from "@/lib/import-error-message";
+import { runInBackground } from "@/lib/job-polling";
 
+type SuggestedRange = { sample_size: number; minimum_value: number; maximum_value: number; reliability: "alta" | "baixa" };
 type CityProfile = "pequeno" | "medio" | "grande" | "metropole";
 type DimensionConfiguration = { code: string; name: string; color: string; display_order: number; weight: number };
 type IndicatorConfiguration = { code: string; name: string; dimension: string; unit: string; display_order: number; minimum_value: number | null; maximum_value: number | null };
@@ -41,6 +43,7 @@ export default function IiuConfigurationPage() {
   const [isSavingWeights, setIsSavingWeights] = useState(false);
   const [isSavingBenchmark, setIsSavingBenchmark] = useState(false);
   const [isSuggesting, setIsSuggesting] = useState(false);
+  const [autoProgress, setAutoProgress] = useState<{ phase: string; fraction: number } | null>(null);
   const [refreshAttempt, setRefreshAttempt] = useState(0);
   const [notice, setNotice] = useState<{ variant: "success" | "error" | "loading" | "warning"; message: string } | null>(null);
 
@@ -100,16 +103,41 @@ export default function IiuConfigurationPage() {
     setIsSuggesting(true);
     setNotice(null);
     try {
-      const response = await fetch(`/api/iiu-configuration/benchmark-suggestion?indicator_code=${encodeURIComponent(selectedIndicator.code)}`, { cache: "no-store" });
+      const response = await fetch(`/api/iiu-configuration/benchmark-suggestion/by-profile?indicator_code=${encodeURIComponent(selectedIndicator.code)}`, { cache: "no-store" });
       if (!response.ok) throw new Error(await importErrorMessage(response, "Não foi possível sugerir uma faixa para este indicador."));
-      const suggestion = await response.json() as { minimum_value: number; maximum_value: number; sample_size: number; reference_period_from: string; reference_period_to: string };
-      setMinimumValue(String(suggestion.minimum_value));
-      setMaximumValue(String(suggestion.maximum_value));
-      setNotice({ variant: "success", message: `Faixa sugerida com base em ${new Intl.NumberFormat("pt-BR").format(suggestion.sample_size)} municípios (percentis 10 e 90). Confira os valores e clique em salvar para aplicar neste porte.` });
+      const suggestion = await response.json() as { municipalities: number; overall: SuggestedRange | null; profiles: Record<string, SuggestedRange | null> };
+      const profileLabel = profileOptions.find((profile) => profile.value === cityProfile)?.label ?? cityProfile;
+      const forProfile = suggestion.profiles[cityProfile];
+      const chosen = forProfile ?? suggestion.overall;
+      if (!chosen) throw new Error("Não há municípios suficientes com valor para sugerir uma faixa.");
+      setMinimumValue(String(chosen.minimum_value));
+      setMaximumValue(String(chosen.maximum_value));
+      const sample = new Intl.NumberFormat("pt-BR").format(chosen.sample_size);
+      const source = forProfile ? `${sample} municípios do porte ${profileLabel}` : `${sample} municípios de todos os portes (o porte ${profileLabel} tem poucos dados)`;
+      setNotice({ variant: chosen.reliability === "baixa" ? "warning" : "success", message: `Faixa sugerida com base em ${source} (percentis 10 e 90).${chosen.reliability === "baixa" ? " A amostra é pequena; trate como ponto de partida." : ""} Confira os valores e clique em salvar para aplicar neste porte.` });
     } catch (suggestError: unknown) {
       setNotice({ variant: "error", message: suggestError instanceof Error ? suggestError.message : "Não foi possível sugerir uma faixa para este indicador." });
     } finally {
       setIsSuggesting(false);
+    }
+  }
+
+  async function applyAutomaticBenchmarks() {
+    if (!window.confirm("Calcular e gravar as faixas de todos os indicadores que já têm dados, nos quatro portes? As faixas atuais desses indicadores serão substituídas.")) return;
+    setNotice(null);
+    setAutoProgress({ phase: "Enviando o pedido", fraction: 0 });
+    try {
+      const result = await runInBackground<{ saved: number; skipped: number; indicators_with_data: number; population_year: number | null }>("/api/iiu-configuration/benchmarks/auto", { city_profiles: profileOptions.map((profile) => profile.value) }, {
+        fallbackMessage: "Não foi possível calcular as faixas.",
+        errorMessage: (failed) => importErrorMessage(failed, "Não foi possível calcular as faixas."),
+        onProgress: (phase, fraction) => setAutoProgress({ phase, fraction })
+      });
+      setNotice({ variant: result.skipped ? "warning" : "success", message: `${result.saved} faixas gravadas em ${result.indicators_with_data} indicadores com dados${result.skipped ? `; ${result.skipped} combinações ficaram de fora por falta de municípios` : ""}. Os portes com poucos municípios usam a faixa geral.` });
+      setRefreshAttempt((attempt) => attempt + 1);
+    } catch (autoError: unknown) {
+      setNotice({ variant: "error", message: autoError instanceof Error ? autoError.message : "Não foi possível calcular as faixas." });
+    } finally {
+      setAutoProgress(null);
     }
   }
 
@@ -157,10 +185,15 @@ export default function IiuConfigurationPage() {
             <label>Valor mínimo<input onChange={(event) => setMinimumValue(event.target.value)} required step="any" type="number" value={minimumValue} /></label>
             <label>Valor máximo<input onChange={(event) => setMaximumValue(event.target.value)} required step="any" type="number" value={maximumValue} /></label>
             <button className={styles.secondaryLink} disabled={isSuggesting || isSavingBenchmark} onClick={() => void suggestBenchmark()} type="button">{isSuggesting ? "Calculando..." : "Sugerir pela base importada"}</button>
-            <p className={styles.fieldNote}>A sugestão usa os percentis 10 e 90 do valor mais recente de cada município já aprovado. Precisa de pelo menos 30 municípios.</p>
+            <p className={styles.fieldNote}>A sugestão usa os percentis 10 e 90 do valor mais recente de cada município já aprovado, dentro do porte escolhido. Precisa de pelo menos 30 municípios (10 nas metrópoles).</p>
             <button className={styles.primaryButton} disabled={isSavingBenchmark || !minimumValue || !maximumValue || Number(minimumValue) >= Number(maximumValue)} type="submit">{isSavingBenchmark ? "Salvando referência..." : "Salvar referência"}</button>
           </> : null}
         </form> : <StatusNotice variant="info">Não há indicadores habilitados para o IIU no catálogo.</StatusNotice>}
+      </section>
+      <section className={styles.analysisPanel}>
+        <div className={styles.sectionHeading}><div><h2>Calcular faixas automaticamente</h2><span>Para cada indicador que já tem dados importados, grava a faixa (percentis 10 e 90) de cada porte. O porte vem da população do município no IBGE. Quando um porte tem poucos municípios, usa a faixa de todos os municípios.</span></div></div>
+        <button className={styles.secondaryLink} disabled={autoProgress !== null || isLoading} onClick={() => void applyAutomaticBenchmarks()} type="button">{autoProgress ? "Calculando..." : "Calcular faixas de todos os indicadores com dados"}</button>
+        {autoProgress ? <div role="status"><StatusNotice variant="loading">{autoProgress.phase}</StatusNotice><progress aria-label="Andamento do cálculo das faixas" max={100} value={Math.round(autoProgress.fraction * 100)} /></div> : null}
       </section>
       <section className={styles.analysisPanel}>
         <div className={styles.sectionHeading}><div><h2>Alterações recentes</h2><span>Registro das mudanças em fórmulas, pesos e referências.</span></div></div>

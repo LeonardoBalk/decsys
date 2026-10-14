@@ -31,7 +31,6 @@ export class JobFailedError extends Error {
 const defaultWait = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 const defaultFetchJob = (jobId: string) => fetch(`/api/jobs/${encodeURIComponent(jobId)}`, { cache: "no-store" });
 
-/** Consulta a tarefa até terminar. Falhas passageiras de rede não derrubam o acompanhamento (a gravação continua no servidor). */
 export async function pollJob<Result>(jobId: string, options: PollOptions<Result> = {}): Promise<Result> {
   const { intervalMs = 1500, maxMs = 30 * 60_000, onProgress, fetchJob = defaultFetchJob, wait = defaultWait, isCancelled } = options;
   const startedAt = Date.now();
@@ -57,7 +56,6 @@ export async function pollJob<Result>(jobId: string, options: PollOptions<Result
   throw new JobFailedError("A tarefa está demorando mais que o esperado. Confira em Importações salvas antes de tentar de novo.", null);
 }
 
-/** Inicia uma ação em segundo plano e acompanha até o resultado. Se o servidor responder direto (200), devolve o corpo. */
 export async function runInBackground<Result>(url: string, body: unknown, options: PollOptions<Result> & { fallbackMessage: string; errorMessage: (response: Response) => Promise<string> }): Promise<Result> {
   const separator = url.includes("?") ? "&" : "?";
   const response = await fetch(`${url}${separator}background=true`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });

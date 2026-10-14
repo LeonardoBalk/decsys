@@ -63,7 +63,6 @@ def approve_municipal_import(import_id: str, approval: MunicipalApproval) -> dic
 
 @router.post("/imports/{import_id}/approve-municipal-batch")
 def approve_municipal_import_batch(import_id: str, approval: MunicipalBatchApproval, response: Response, background: bool = False) -> dict[str, Any]:
-    """Grava várias medidas da mesma aba. Com background=true devolve 202 e uma tarefa para acompanhar em GET /jobs/{id}."""
     if background:
         validate_period_selection(approval.period)
         job = jobs.start_job("approve", import_id, lambda running_job: run_batch_approval(import_id, approval, running_job.report))
@@ -92,7 +91,6 @@ def chunk_sheet_name(sheet_name: str | None, index: int, total: int) -> str:
 
 
 class CachedPopulationLookup:
-    """Busca a população de cada ano uma vez; anos que o IBGE não publica viram 'sem população' em vez de derrubar tudo."""
 
     def __init__(self) -> None:
         self.by_year: dict[int, dict[str, int]] = {}

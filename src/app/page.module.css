@@ -340,7 +340,6 @@
   .stepperLabel strong { font-size: var(--text-caption); }
 }
 
-/* Sidebar — marca e grupos de navegação */
 .brandLink { display: block; padding: 0 10px; text-decoration: none; }
 .brandLink .productName { margin: 0 0 6px; color: var(--color-text); }
 .brandTagline { display: block; color: var(--color-text-lighter); font-size: var(--text-caption); line-height: 1.35; }
@@ -359,10 +358,8 @@
   .sidebar nav a { flex-shrink: 0; white-space: nowrap; }
 }
 
-/* Links de ação dentro da introdução não devem esticar até a largura do bloco */
 .workspaceIntro > a { justify-self: start; }
 
-/* Limites de valor e andamento da gravação (tela de aprovação municipal) */
 .valueLimits { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-3); }
 .valueLimits .fieldNote { grid-column: 1 / -1; }
 .approvalProgress { display: grid; gap: var(--space-2); }

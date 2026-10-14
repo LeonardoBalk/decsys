@@ -1,14 +1,3 @@
-"""Verificação ao vivo dos links do catálogo de coleta (src/data/coleta/*.json).
-
-Não faz parte dos testes unitários: depende de rede e de sites externos. Serve para detectar link quebrado
-e para conferir que o importador do DECSYS ainda lê cada fonte marcada como "link".
-
-Uso, a partir da raiz do repositório:
-    .venv\\Scripts\\python.exe -m services.ingestion.tests.live_catalog_check [--only ECO01,PES01] [--workers 4]
-
-Saída: uma linha por indicador (OK = tabela lida, PAGE = página com arquivos candidatos, FAIL = erro).
-Código de saída 1 se algum indicador marcado como "link" falhar.
-"""
 import argparse
 import json
 import sys
@@ -31,7 +20,7 @@ def check(item: dict) -> tuple[str, str, str]:
     client = TestClient(main.app)
     try:
         response = client.post("/profile-link", json={"source_url": item["importUrl"]})
-    except Exception as error:  # noqa: BLE001 - relatório, não fluxo de produção
+    except Exception as error:
         return item["code"], "FAIL", repr(error)[:160]
     body = response.json()
     if response.status_code != 200:

@@ -47,7 +47,6 @@ export function countByAccess(items: CollectionItem[] = collectionItems): Record
 export type CollectionOrigin = "base" | "custom" | "edited";
 export type CollectionEntry = CollectionItem & { origin: CollectionOrigin };
 
-/** Une o catálogo base com as fontes salvas: a mesma sigla substitui a original, siglas novas entram no fim da dimensão. */
 export function mergeCollectionItems(base: CollectionItem[], saved: CollectionItem[]): CollectionEntry[] {
   const savedByCode = new Map(saved.map((item) => [item.code, item]));
   const baseCodes = new Set(base.map((item) => item.code));

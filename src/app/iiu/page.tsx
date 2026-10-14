@@ -60,6 +60,7 @@ export default function IiuDashboardPage() {
   const [isSearchingMunicipalities, setIsSearchingMunicipalities] = useState(false);
   const [hasSearchedMunicipalities, setHasSearchedMunicipalities] = useState(false);
   const [message, setMessage] = useState("");
+  const [profileNote, setProfileNote] = useState("");
 
   async function searchMunicipalities() {
     setMessage("");
@@ -88,11 +89,30 @@ export default function IiuDashboardPage() {
     }
   }
 
-  async function loadDashboard(selectedCode: string, selectedProfile = cityProfile) {
+  async function detectCityProfile(code: string) {
+    try {
+      const response = await fetch(`/api/iiu-municipality-profile/${encodeURIComponent(code)}`, { cache: "no-store" });
+      if (!response.ok) return null;
+      return await response.json() as { city_profile: string; population: number; population_year: number };
+    } catch {
+      return null;
+    }
+  }
+
+  async function loadDashboard(selectedCode: string, selectedProfile?: string) {
     setIsLoading(true);
     setMessage("");
+    let profile = selectedProfile ?? cityProfile;
     try {
-      const response = await fetch(`/api/iiu-dashboard/${encodeURIComponent(selectedCode)}?city_profile=${selectedProfile}`);
+      if (!selectedProfile && selectedCode !== "demo") {
+        const detected = await detectCityProfile(selectedCode);
+        if (detected) {
+          profile = detected.city_profile;
+          setCityProfile(profile);
+          setProfileNote(`Porte definido pela população (${detected.population.toLocaleString("pt-BR")} habitantes, IBGE ${detected.population_year}). Você pode trocar manualmente.`);
+        } else setProfileNote("");
+      }
+      const response = await fetch(`/api/iiu-dashboard/${encodeURIComponent(selectedCode)}?city_profile=${profile}`);
       if (!response.ok) setMessage(await importErrorMessage(response, "Não foi possível calcular o IIU."));
       else {
         const payload: IiuDashboard = await response.json();
@@ -115,6 +135,7 @@ export default function IiuDashboardPage() {
 
   function changeCityProfile(selectedProfile: string) {
     setCityProfile(selectedProfile);
+    setProfileNote("Porte escolhido manualmente.");
     if (dashboard) void loadDashboard(dashboard.is_demonstration ? "demo" : dashboard.municipality_ibge_code, selectedProfile);
   }
 
@@ -140,7 +161,7 @@ export default function IiuDashboardPage() {
       <div className={styles.sectionHeading}><div><h2>Escolher município</h2><span>Digite o nome e pressione Enter para pesquisar, ou informe o código IBGE para calcular direto. O porte define os pesos entre as dimensões.</span></div></div>
       <form className={styles.sourceForm} onSubmit={submitMunicipality}>
         <label>Código IBGE ou nome do município<input onChange={(event) => { setMunicipalityQuery(event.target.value); setMunicipalities([]); setHasSearchedMunicipalities(false); }} placeholder="Ex.: 4314902 ou Porto Alegre" value={municipalityQuery} /></label>
-        <label>Porte do município<select onChange={(event) => changeCityProfile(event.target.value)} value={cityProfile}>{cityProfiles.map((profile) => <option key={profile.value} value={profile.value}>{profile.label}</option>)}</select>{dashboard ? <span className={styles.fieldNote}>Trocar o porte recalcula o diagnóstico exibido.</span> : null}</label>
+        <label>Porte do município<select onChange={(event) => changeCityProfile(event.target.value)} value={cityProfile}>{cityProfiles.map((profile) => <option key={profile.value} value={profile.value}>{profile.label}</option>)}</select>{profileNote ? <span className={styles.fieldNote}>{profileNote}</span> : dashboard ? <span className={styles.fieldNote}>Trocar o porte recalcula o diagnóstico exibido.</span> : null}</label>
         <div className={styles.stepActions}>
           <button disabled={isLoading} onClick={() => void loadDashboard("demo")} type="button">Ver demonstração</button>
           <button className={styles.primaryButton} disabled={isSearchingMunicipalities || isLoading || !municipalityQuery.trim()} type="submit">{isCodeQuery ? (isLoading ? "Calculando..." : "Calcular IIU") : <><Search size={16} />{isSearchingMunicipalities ? "Pesquisando..." : "Pesquisar município"}</>}</button>

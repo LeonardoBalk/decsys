@@ -10,7 +10,6 @@ function searchableText(indicator: Indicator): string {
   return normalizeSearchText(`${indicator.code} ${indicator.name} ${indicator.dimension ?? ""} ${indicator.unit}`);
 }
 
-/** Todas as palavras digitadas precisam aparecer (em qualquer ordem). Sigla no começo do código vem primeiro. */
 export function searchIndicators(indicators: Indicator[], query: string): Indicator[] {
   const terms = normalizeSearchText(query).split(" ").filter(Boolean);
   if (!terms.length) return indicators;
@@ -29,7 +28,6 @@ export function searchIndicators(indicators: Indicator[], query: string): Indica
   return [...matches].sort((left, right) => rank(left) - rank(right));
 }
 
-/** Agrupa por dimensão mantendo a ordem em que cada dimensão aparece na lista recebida. */
 export function groupByDimension(indicators: Indicator[]): IndicatorGroup[] {
   const groups = new Map<string, Indicator[]>();
   for (const indicator of indicators) {
@@ -39,7 +37,6 @@ export function groupByDimension(indicators: Indicator[]): IndicatorGroup[] {
   return [...groups.entries()].map(([dimension, items]) => ({ dimension, indicators: items }));
 }
 
-/** Código curto exibido ao lado do nome: "eco01_pib_..." vira "ECO01"; códigos antigos ficam como estão. */
 export function shortIndicatorCode(code: string): string {
   const match = /^([a-z]{3}\d{2})_/.exec(code);
   return match ? match[1].toUpperCase() : code;

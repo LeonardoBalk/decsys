@@ -1,4 +1,3 @@
-// Captura telas para conferência visual: node tests/e2e/shot.mjs <baseUrl> <saida> [rota...]
 import { chromium } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 

@@ -241,7 +241,6 @@ async def fetch_link_source(source_url: str) -> tuple[str, bytes, str, str, list
         source_name, source_content, _ = await run_in_threadpool(fetch_drive_file, drive_id)
         ensure_source_size(len(source_content))
         return source_name, source_content, "", source_url, None
-    # As páginas do IBGE ficam atrás de WAF e respondem 403 a clientes automatizados; a base da MUNIC é lida direto do FTP.
     is_direct_file = Path(urlparse(source_url).path).suffix.lower() in acceptable_extensions
     munic_candidates = [] if is_direct_file else await run_in_threadpool(discover_munic_resources, source_url)
     if munic_candidates:

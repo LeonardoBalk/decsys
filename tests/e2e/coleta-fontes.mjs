@@ -1,4 +1,3 @@
-// Fluxo de adicionar/editar/restaurar fonte em /coleta com a API simulada: node tests/e2e/coleta-fontes.mjs <baseUrl> [pastaDeCapturas]
 import { chromium } from "@playwright/test";
 import { mkdirSync } from "node:fs";
 import assert from "node:assert/strict";
@@ -51,7 +50,6 @@ await page.locator("details[open]").getByRole("button", { name: "Excluir" }).cli
 await page.getByText("SAU01 excluída.").waitFor();
 assert.equal(await page.getByText("Leitos de UTI (editado)").count(), 0);
 
-// editar um indicador da matriz cria uma versão "Editada" e dá para restaurar
 await page.locator("summary", { hasText: "ECO01" }).click();
 await page.locator("details[open]").getByRole("button", { name: "Editar" }).click();
 await page.getByLabel("Passo a passo").fill("Passo ajustado pela pessoa.");
@@ -61,7 +59,6 @@ assert.ok(await page.getByText("Editada").count() >= 1, "deveria marcar como Edi
 await page.locator("details[open]").getByRole("button", { name: "Restaurar original" }).click();
 await page.getByText("ECO01 voltou à versão original.").waitFor();
 
-// nada é obrigatório: formulário vazio gera uma sigla e cai em "Outras"
 await page.getByRole("button", { name: "Adicionar fonte" }).click();
 await page.getByRole("button", { name: "Salvar fonte" }).click();
 await page.getByRole("heading", { name: "Outras" }).waitFor();

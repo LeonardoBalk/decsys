@@ -10,7 +10,6 @@ type IndicatorPickerProps = {
   indicators: Indicator[];
   value: string;
   onChange: (indicatorId: string) => void;
-  /** Indicadores que não podem ser escolhidos (ex.: já usados em outra medida). */
   isDisabled?: (indicator: Indicator) => boolean;
   onCreateNew?: () => void;
   placeholder?: string;

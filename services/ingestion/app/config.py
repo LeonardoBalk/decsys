@@ -26,5 +26,4 @@ source_cache_max_bytes = int(os.getenv("SOURCE_CACHE_MB", "1024")) * 1024 * 1024
 
 ibge_catalog_ttl_seconds = 24 * 60 * 60
 
-# Aprovações grandes são gravadas em partes deste tamanho (cada parte vira uma aba derivada), para não estourar o tempo limite do banco.
 approval_chunk_rows = int(os.getenv("APPROVAL_CHUNK_ROWS", "4000"))

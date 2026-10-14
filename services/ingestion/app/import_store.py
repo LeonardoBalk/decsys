@@ -144,10 +144,6 @@ def spreadsheet_export_value(field_value: Any) -> Any:
 
 
 def write_derived_sheet(import_id: str, target_sheet: str, source_sheet: str | None, rows: list[tuple[dict[str, Any], dict[str, Any]]]) -> int:
-    """Grava as linhas (já preparadas) numa aba nova da mesma importação, sem tocar nas linhas originais.
-
-    Cada linha guarda `origin_sheet` e `origin_row_number` para rastrear de onde veio. Regravar a mesma aba substitui o conteúdo.
-    """
     headers = supabase_client.supabase_headers()
     delete_response = httpx.delete(supabase_client.supabase_url("/rest/v1/import_rows"), params={"import_id": f"eq.{import_id}", "sheet_name": f"eq.{target_sheet}"}, headers=headers, timeout=120.0)
     if not delete_response.is_success:

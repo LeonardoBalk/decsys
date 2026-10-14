@@ -1,4 +1,3 @@
-// Opções novas da aprovação (população, limites, filtro, progresso) com a API simulada.
 import { chromium } from "@playwright/test";
 import assert from "node:assert/strict";
 const [baseUrl, shots] = process.argv.slice(2);
@@ -20,12 +19,10 @@ await page.route("**/api/jobs/job-1", (route) => {
 });
 await page.goto(`${baseUrl}/approval-preview`, { waitUntil: "networkidle" });
 
-// escolhe o indicador pela busca
 await page.getByRole("combobox", { name: "Indicador" }).click();
 await page.getByRole("combobox", { name: "Indicador" }).fill("leitos");
 await page.getByRole("option", { name: /QVI03/ }).click();
 
-// per capita: numerador + população
 await page.locator("label", { hasText: /^Numerador/ }).locator("select").selectOption("leitos");
 await page.locator("label", { hasText: /^Dividir por/ }).locator("select").selectOption("population");
 assert.equal(await page.locator("label", { hasText: /^Denominador/ }).count(), 0, "com população não há coluna de denominador");

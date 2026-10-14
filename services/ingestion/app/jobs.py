@@ -1,8 +1,3 @@
-"""Tarefas longas em segundo plano (aprovações grandes), consultadas por polling.
-
-O estado fica em memória do processo: serve para acompanhar o andamento enquanto o serviço está de pé.
-Se o processo reiniciar, o que já foi gravado no banco continua lá; só o acompanhamento se perde.
-"""
 import threading
 import time
 import uuid
@@ -21,7 +16,7 @@ class Job:
     id: str
     kind: str
     import_id: str | None
-    status: str = "running"  # running | done | error
+    status: str = "running"
     phase: str = "Iniciando"
     progress: float = 0.0
     result: dict[str, Any] | None = None
@@ -63,7 +58,7 @@ def start_job(kind: str, import_id: str | None, work: Callable[[Job], dict[str, 
             job.status, job.progress, job.phase = "done", 1.0, "Concluído"
         except HTTPException as http_error:
             job.status, job.error, job.error_status = "error", str(http_error.detail), http_error.status_code
-        except Exception as unexpected_error:  # noqa: BLE001 - qualquer falha precisa chegar a quem acompanha
+        except Exception as unexpected_error:
             job.status, job.error, job.error_status = "error", f"Falha inesperada: {unexpected_error}", 500
         finally:
             job.finished_at = time.time()

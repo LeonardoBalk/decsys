@@ -1,4 +1,3 @@
-"""População residente por município (IBGE/SIDRA), usada como denominador de indicadores per capita."""
 import threading
 import time
 from typing import Any
@@ -14,7 +13,6 @@ maximum_distinct_years = 40
 
 
 def population_sources(year: int) -> list[str]:
-    """Estimativas anuais (tabela 6579) e, nos anos de Censo, a tabela do Censo. A ordem é a de preferência."""
     sources = [f"{SIDRA_VALUES}/t/6579/n6/all/v/9324/p/{year}/h/n"]
     if year == 2022:
         sources.append(f"{SIDRA_VALUES}/t/4709/n6/all/v/93/p/2022/h/n")
@@ -33,7 +31,6 @@ def parse_sidra_population(rows: Any) -> dict[str, int]:
 
 
 def population_by_municipality(year: int) -> dict[str, int]:
-    """Código IBGE de 7 dígitos -> habitantes no ano. Falha com mensagem clara se a SIDRA não tiver o ano."""
     with population_cache_lock:
         cached = population_cache.get(year)
         if cached and cached["expires_at"] > time.time():
@@ -57,3 +54,32 @@ def population_lookup_for_years(years: set[int]) -> dict[int, dict[str, int]]:
     if len(years) > maximum_distinct_years:
         raise HTTPException(422, f"A planilha tem {len(years)} anos diferentes; para dividir pela população use até {maximum_distinct_years}.")
     return {year: population_by_municipality(year) for year in sorted(years)}
+
+
+city_profile_limits = (("pequeno", 50_000), ("medio", 300_000), ("grande", 1_000_000))
+latest_population_cache: dict[str, Any] = {"expires_at": 0.0, "year": None, "by_code": {}}
+
+
+def city_profile_for_population(inhabitants: int) -> str:
+    for profile, upper_limit in city_profile_limits:
+        if inhabitants <= upper_limit:
+            return profile
+    return "metropole"
+
+
+def latest_population(today_year: int | None = None) -> tuple[int, dict[str, int]]:
+    with population_cache_lock:
+        if latest_population_cache["expires_at"] > time.time() and latest_population_cache["year"]:
+            return latest_population_cache["year"], latest_population_cache["by_code"]
+    start_year = today_year or time.gmtime().tm_year
+    for year in [*range(start_year, start_year - 4, -1), 2022]:
+        try:
+            by_code = population_by_municipality(year)
+        except HTTPException as unavailable:
+            if unavailable.status_code != 422:
+                raise
+            continue
+        with population_cache_lock:
+            latest_population_cache.update({"expires_at": time.time() + population_cache_ttl_seconds, "year": year, "by_code": by_code})
+        return year, by_code
+    raise HTTPException(503, "Não foi possível obter a população dos municípios no IBGE para classificar o porte.")
