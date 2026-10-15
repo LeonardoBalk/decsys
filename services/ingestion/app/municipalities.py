@@ -1,7 +1,11 @@
 import httpx
 import re
+import ssl
 import time
 import unicodedata
+from functools import lru_cache
+from pathlib import Path
+import certifi
 from fastapi import HTTPException
 from typing import Any
 from fastapi import APIRouter
@@ -163,16 +167,25 @@ def search_ibge_municipalities(search: str = "", limit: int = 20) -> list[dict[s
     candidates.sort(key=lambda municipality: (not normalize_municipality_name(municipality["name"]).startswith(normalized_search), municipality["name"], municipality["state"]))
     return candidates[:page_limit]
 
+@lru_cache(maxsize=1)
+def ibge_localities_ssl_context() -> ssl.SSLContext:
+    context = ssl.create_default_context(cafile=certifi.where())
+    context.load_verify_locations(cafile=str(Path(__file__).parent / "certs" / "sectigo-dv-r36.pem"))
+    return context
+
 def fetch_ibge_municipalities() -> list[dict[str, str]]:
     catalog_response = None
     for attempt in range(3):
         try:
-            catalog_response = httpx.get("https://servicodados.ibge.gov.br/api/v1/localidades/municipios", timeout=60.0)
-            break
+            catalog_response = httpx.get("https://servicodados.ibge.gov.br/api/v1/localidades/municipios", timeout=60.0, verify=ibge_localities_ssl_context())
         except httpx.TransportError:
-            if attempt == 2:
-                raise HTTPException(502, "Não foi possível consultar o catálogo de municípios do IBGE. Tente novamente em alguns instantes.")
+            catalog_response = None
+        if catalog_response is not None and catalog_response.status_code < 500:
+            break
+        if attempt < 2:
             time.sleep(2 * (attempt + 1))
+    if catalog_response is None:
+        raise HTTPException(502, "Não foi possível consultar o catálogo de municípios do IBGE. Tente novamente em alguns instantes.")
     if not catalog_response.is_success:
         raise HTTPException(502, "O serviço de localidades do IBGE está indisponível no momento.")
     try:
