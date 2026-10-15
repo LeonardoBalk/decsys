@@ -164,10 +164,15 @@ def search_ibge_municipalities(search: str = "", limit: int = 20) -> list[dict[s
     return candidates[:page_limit]
 
 def fetch_ibge_municipalities() -> list[dict[str, str]]:
-    try:
-        catalog_response = httpx.get("https://servicodados.ibge.gov.br/api/v1/localidades/municipios", timeout=30.0)
-    except httpx.TransportError:
-        raise HTTPException(502, "Não foi possível consultar o catálogo de municípios do IBGE. Tente novamente em alguns instantes.")
+    catalog_response = None
+    for attempt in range(3):
+        try:
+            catalog_response = httpx.get("https://servicodados.ibge.gov.br/api/v1/localidades/municipios", timeout=60.0)
+            break
+        except httpx.TransportError:
+            if attempt == 2:
+                raise HTTPException(502, "Não foi possível consultar o catálogo de municípios do IBGE. Tente novamente em alguns instantes.")
+            time.sleep(2 * (attempt + 1))
     if not catalog_response.is_success:
         raise HTTPException(502, "O serviço de localidades do IBGE está indisponível no momento.")
     try:

@@ -79,7 +79,7 @@
 .calculationPreview > div:first-child span, .calculationPreview > p { color: var(--color-text-lighter); font-size: var(--text-sm); }
 .calculationPreview > p { margin: 0; }
 .calculationPreview .tableWrap { max-height: 320px; }
-.iiuConfigurationSections { display: grid; gap: var(--space-4); margin-top: var(--space-6); }
+.iiuConfigurationSections { display: grid; grid-template-columns: minmax(0, 1fr); gap: var(--space-4); margin-top: var(--space-6); }
 .statusNotice { display: grid; grid-template-columns: 20px minmax(0, 1fr) auto; gap: var(--space-3); align-items: start; min-height: 46px; margin: 0; padding: 12px 14px; border: 1px solid var(--color-border-muted); border-radius: var(--radius-md); font-size: var(--text-sm); line-height: var(--leading-relaxed); }
 .statusNoticeIcon, .statusNoticeSpinner { margin-top: 1px; }
 .statusNoticeContent { min-width: 0; color: var(--color-text-light); }
@@ -198,7 +198,7 @@
 .tableHeading { display: flex; justify-content: space-between; align-items: flex-end; gap: var(--space-6); margin-bottom: var(--space-4); }
 .tableHeading h2 { margin-bottom: 0; }
 .tableHeading > span { color: var(--color-text-muted); font-size: var(--text-caption); font-family: var(--font-mono); }
-.tableWrap { width: 100%; max-width: 100%; max-height: 560px; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; border: 1px solid var(--color-border-muted); border-radius: var(--radius-md); background: var(--color-surface-200); }
+.tableWrap { position: relative; width: 100%; max-width: 100%; max-height: 560px; overflow: auto; overscroll-behavior: contain; scrollbar-gutter: stable; border: 1px solid var(--color-border-muted); border-radius: var(--radius-md); background: var(--color-surface-200); }
 .tableWrap table { width: 100%; min-width: 700px; border-collapse: collapse; font-size: var(--text-caption); }
 .tableWrap th { background: var(--color-surface-300); color: var(--color-text-lighter); font-size: var(--text-caption); font-weight: 600; letter-spacing: .015em; text-align: left; }
 .tableWrap th, .tableWrap td { min-width: 140px; padding: 10px 12px; border-right: 1px solid var(--color-border-muted); border-bottom: 1px solid var(--color-border-muted); white-space: nowrap; }
