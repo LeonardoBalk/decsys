@@ -14,9 +14,10 @@ type IndicatorPickerProps = {
   onCreateNew?: () => void;
   placeholder?: string;
   label?: string;
+  clearLabel?: string;
 };
 
-export function IndicatorPicker({ indicators, value, onChange, isDisabled, onCreateNew, placeholder = "Buscar por sigla, nome ou dimensão", label = "Indicador" }: IndicatorPickerProps) {
+export function IndicatorPicker({ indicators, value, onChange, isDisabled, onCreateNew, placeholder = "Buscar por sigla, nome ou dimensão", label = "Indicador", clearLabel }: IndicatorPickerProps) {
   const listId = useId();
   const containerRef = useRef<HTMLDivElement>(null);
   const [query, setQuery] = useState("");
@@ -43,6 +44,12 @@ export function IndicatorPicker({ indicators, value, onChange, isDisabled, onCre
     setIsOpen(false);
   }
 
+  function clearSelection() {
+    onChange("");
+    setQuery("");
+    setIsOpen(false);
+  }
+
   function moveHighlight(step: 1 | -1) {
     if (!flat.length) return;
     let next = highlighted;
@@ -61,7 +68,7 @@ export function IndicatorPicker({ indicators, value, onChange, isDisabled, onCre
   }
 
   const optionId = (indicator: Indicator) => `${listId}-${indicator.id}`;
-  const displayValue = isOpen ? query : selected ? `${shortIndicatorCode(selected.code)} — ${selected.name.replace(/^[A-Z]{3}\d{2} — /, "")}` : "";
+  const displayValue = isOpen ? query : selected ? `${shortIndicatorCode(selected.code)} — ${selected.name.replace(/^[A-Z]{3}\d{2} — /, "")}` : clearLabel ?? "";
 
   return <div className={styles.group}>
     <span className={styles.label} id={`${listId}-label`}>{label}</span>
@@ -85,6 +92,7 @@ export function IndicatorPicker({ indicators, value, onChange, isDisabled, onCre
     </div>
     {isOpen ? <div className={styles.popover}>
       <ul className={styles.list} id={listId} role="listbox">
+        {clearLabel && !query ? <li aria-selected={!value} className={styles.option} onClick={clearSelection} role="option"><span className={styles.name}>{clearLabel}</span></li> : null}
         {groups.map((group) => <li key={group.dimension} role="presentation">
           <p className={styles.groupLabel}>{group.dimension}</p>
           <ul role="group" aria-label={group.dimension}>

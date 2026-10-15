@@ -6,6 +6,7 @@ import styles from "../page.module.css";
 import panels from "../_components/iiu/paineis.module.css";
 import { StatusNotice } from "../_components/status-notice";
 import { MunicipalitySearch } from "../_components/iiu/buscar-municipio";
+import { IndicatorPicker } from "../_components/indicator-picker";
 import { Indicator } from "@/lib/types/importacao";
 import { importErrorMessage } from "@/lib/import-error-message";
 import { formatReferencePeriod, hasMonthlyPeriods } from "@/lib/reference-period";
@@ -137,7 +138,7 @@ export default function ReviewedDataPage() {
       <div className={styles.sectionHeading}><div><h2>Filtrar a conferência</h2><span>Combine os filtros para encontrar rapidamente o que conferir. Indicadores com unidades diferentes permanecem separados.</span></div></div>
       <div className={styles.sourceForm} style={{ marginTop: "var(--space-4)" }}>
         <div className={panels.filterGrid}>
-          <label>Indicador<select onChange={(event) => updateFilter({ indicatorCode: event.target.value })} value={filters.indicatorCode}><option value="">Todos os indicadores</option>{indicators.map((indicator) => <option key={indicator.code} value={indicator.code}>{indicator.name}</option>)}</select></label>
+          <IndicatorPicker clearLabel="Todos os indicadores" indicators={indicators} onChange={(indicatorId) => updateFilter({ indicatorCode: indicators.find((indicator) => indicator.id === indicatorId)?.code ?? "" })} value={indicators.find((indicator) => indicator.code === filters.indicatorCode)?.id ?? ""} />
           <label>Dimensão<select onChange={(event) => updateFilter({ dimension: event.target.value })} value={filters.dimension}><option value="">Todas as dimensões</option>{reviewedDimensions.map((dimension) => <option key={dimension.value} value={dimension.value}>{dimension.label}</option>)}</select></label>
           <label>Buscar por nome ou sigla<input onChange={(event) => setSearchText(event.target.value)} placeholder="Ex.: emprego ou eco01" type="search" value={searchText} /></label>
           <label>Período inicial<input inputMode="numeric" onChange={(event) => setPeriodFromText(event.target.value)} placeholder="2020 ou 2020-05" value={periodFromText} /></label>
