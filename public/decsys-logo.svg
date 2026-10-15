@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 430 88" fill="none">
+  <title>DECSYS — Decision and Systemic Strategy Research Group</title>
+  <g transform="translate(4 4)">
+    <path d="M24 8h17a32 32 0 0 1 0 64H24V8Z" stroke="#3E9EFF" stroke-width="7" stroke-linejoin="round"/>
+    <path d="M24 40h19m0 0 15-15M43 40l15 15" stroke="#3E9EFF" stroke-width="6" stroke-linecap="round" stroke-linejoin="round"/>
+    <circle cx="24" cy="40" r="6" fill="#F2F3F5"/>
+    <circle cx="61" cy="22" r="6" fill="#3E9EFF"/>
+    <circle cx="61" cy="58" r="6" fill="#3E9EFF"/>
+  </g>
+  <text x="98" y="61" fill="#F2F3F5" font-family="Inter, Arial, sans-serif" font-size="48" font-weight="700" letter-spacing="2">DECSYS</text>
+</svg>
